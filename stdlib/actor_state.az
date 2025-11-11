@@ -1,0 +1,367 @@
+// std.actor.state - Actor状态管理模块
+// 提供Actor状态管理和持久化支持
+module std.actor.state;
+
+import std.actor.{ActorId, Actor, ActorState, ActorError, Result, Error};
+import std.collections.{HashMap, Vec};
+import std.time;
+import std.mem;
+import std.string;
+
+// ============================================================================
+// Actor状态管理相关类型定义
+// ============================================================================
+
+// Actor状态信息
+struct ActorStateInfo {
+    state: ActorState,           // 当前状态
+    activation_time: time.Time,  // 激活时间
+    last_access_time: time.Time, // 最后访问时间
+    deactivate_time: time.Time,  // 停用时间
+    message_count: int,          // 处理的消息数量
+    error_count: int,            // 错误数量
+    version: int,                // 状态版本
+}
+
+// Actor状态存储
+struct ActorStateStore {
+    states: HashMap<ActorId, ActorStateInfo>,
+    max_states: int,             // 最大状态数量
+    current_states: int,         // 当前状态数量
+}
+
+// 状态变更事件
+enum StateChangeEvent {
+    Activated(ActorId),          // 激活
+    Deactivated(ActorId),        // 停用
+    Idle(ActorId),               // 空闲
+    Error(ActorId, Error),       // 错误
+}
+
+// 状态监听器
+interface StateListener {
+    fn on_state_change(self: *Self, event: StateChangeEvent) void;
+}
+
+// ============================================================================
+// Actor状态管理器
+// ============================================================================
+
+struct ActorStateManager {
+    store: ActorStateStore,
+    listeners: Vec<*StateListener>,
+    default_state_timeout_ms: int, // 默认状态超时时间（毫秒）
+}
+
+// ============================================================================
+// Actor状态存储实现
+// ============================================================================
+
+// 创建Actor状态存储
+fn new_actor_state_store(max_states: int) ActorStateStore {
+    return ActorStateStore {
+        states: HashMap.new(),
+        max_states: max_states,
+        current_states: 0,
+    };
+}
+
+// 获取Actor状态信息
+fn (self: *ActorStateStore) get_state_info(actor_id: ActorId) Option<ActorStateInfo> {
+    return self.states.get(actor_id);
+}
+
+// 更新Actor状态信息
+fn (self: *ActorStateStore) update_state_info(actor_id: ActorId, info: ActorStateInfo) Result<void, Error> {
+    // 检查是否超过最大状态数量
+    if (!self.states.contains_key(actor_id) && self.current_states >= self.max_states) {
+        return Result.Err(Error.new("状态存储已满"));
+    }
+    
+    // 更新状态
+    self.states.insert(actor_id, info);
+    
+    // 更新当前状态数量
+    if (!self.states.contains_key(actor_id)) {
+        self.current_states = self.current_states + 1;
+    }
+    
+    return Result.Ok(void);
+}
+
+// 移除Actor状态信息
+fn (self: *ActorStateStore) remove_state_info(actor_id: ActorId) void {
+    if (self.states.remove(actor_id).is_some()) {
+        self.current_states = self.current_states - 1;
+    }
+}
+
+// 检查Actor状态是否存在
+fn (self: *ActorStateStore) has_state_info(actor_id: ActorId) bool {
+    return self.states.contains_key(actor_id);
+}
+
+// 获取所有Actor状态信息
+fn (self: *ActorStateStore) get_all_states() []ActorStateInfo {
+    let mut result = Vec.new();
+    
+    for (self.states.values()) |state_info| {
+        result.push(state_info);
+    }
+    
+    return result.to_array();
+}
+
+// ============================================================================
+// Actor状态管理器实现
+// ============================================================================
+
+// 创建Actor状态管理器
+fn new_actor_state_manager(max_states: int, default_timeout_ms: int) ActorStateManager {
+    return ActorStateManager {
+        store: new_actor_state_store(max_states),
+        listeners: Vec.new(),
+        default_state_timeout_ms: default_timeout_ms,
+    };
+}
+
+// 添加状态监听器
+fn (self: *ActorStateManager) add_listener(listener: *StateListener) void {
+    self.listeners.push(listener);
+}
+
+// 移除状态监听器
+fn (self: *ActorStateManager) remove_listener(listener: *StateListener) void {
+    // TODO: 实现监听器移除逻辑
+}
+
+// 触发状态变更事件
+fn (self: *ActorStateManager) trigger_state_change(event: StateChangeEvent) void {
+    for (self.listeners) |listener| {
+        listener.on_state_change(event);
+    }
+}
+
+// 创建新的Actor状态信息
+fn (self: *ActorStateManager) create_state_info(actor_id: ActorId, initial_state: ActorState) ActorStateInfo {
+    let now = time.now();
+    
+    return ActorStateInfo {
+        state: initial_state,
+        activation_time: now,
+        last_access_time: now,
+        deactivate_time: time.Time { seconds: 0, nanos: 0 },
+        message_count: 0,
+        error_count: 0,
+        version: 1,
+    };
+}
+
+// 更新Actor状态
+fn (self: *ActorStateManager) update_actor_state(actor_id: ActorId, new_state: ActorState) Result<void, Error> {
+    let state_info = self.store.get_state_info(actor_id);
+    
+    if (state_info.is_none()) {
+        return Result.Err(Error.new("Actor状态信息不存在"));
+    }
+    
+    let mut info = state_info.unwrap();
+    let old_state = info.state;
+    
+    // 更新状态
+    info.state = new_state;
+    info.last_access_time = time.now();
+    info.version = info.version + 1;
+    
+    // 如果是停用状态，记录停用时间
+    if (new_state == ActorState.Deactivating || new_state == ActorState.Inactive) {
+        info.deactivate_time = time.now();
+    }
+    
+    // 更新存储
+    let update_result = self.store.update_state_info(actor_id, info);
+    if (update_result.is_err()) {
+        return update_result;
+    }
+    
+    // 触发状态变更事件
+    match new_state {
+        ActorState.Active => {
+            self.trigger_state_change(StateChangeEvent.Activated(actor_id));
+        },
+        ActorState.Inactive => {
+            self.trigger_state_change(StateChangeEvent.Deactivated(actor_id));
+        },
+        _ => {
+            // 其他状态变更不触发事件
+        }
+    }
+    
+    return Result.Ok(void);
+}
+
+// 记录Actor处理消息
+fn (self: *ActorStateManager) record_message_processed(actor_id: ActorId) Result<void, Error> {
+    let state_info = self.store.get_state_info(actor_id);
+    
+    if (state_info.is_none()) {
+        return Result.Err(Error.new("Actor状态信息不存在"));
+    }
+    
+    let mut info = state_info.unwrap();
+    info.message_count = info.message_count + 1;
+    info.last_access_time = time.now();
+    
+    return self.store.update_state_info(actor_id, info);
+}
+
+// 记录Actor错误
+fn (self: *ActorStateManager) record_error(actor_id: ActorId, error: Error) Result<void, Error> {
+    let state_info = self.store.get_state_info(actor_id);
+    
+    if (state_info.is_none()) {
+        return Result.Err(Error.new("Actor状态信息不存在"));
+    }
+    
+    let mut info = state_info.unwrap();
+    info.error_count = info.error_count + 1;
+    info.last_access_time = time.now();
+    
+    let update_result = self.store.update_state_info(actor_id, info);
+    if (update_result.is_ok()) {
+        // 触发错误事件
+        self.trigger_state_change(StateChangeEvent.Error(actor_id, error));
+    }
+    
+    return update_result;
+}
+
+// 获取Actor状态
+fn (self: *ActorStateManager) get_actor_state(actor_id: ActorId) Option<ActorState> {
+    let state_info = self.store.get_state_info(actor_id);
+    
+    if (state_info.is_none()) {
+        return Option.None;
+    }
+    
+    return Option.Some(state_info.unwrap().state);
+}
+
+// 检查Actor是否超时
+fn (self: *ActorStateManager) is_actor_timeout(actor_id: ActorId, timeout_ms: int) bool {
+    let state_info = self.store.get_state_info(actor_id);
+    
+    if (state_info.is_none()) {
+        return false;
+    }
+    
+    let info = state_info.unwrap();
+    let now = time.now();
+    let timeout_duration = time.duration_from_millis(timeout_ms);
+    let timeout_threshold = time.time_sub(now, timeout_duration);
+    
+    return time.time_less(info.last_access_time, timeout_threshold);
+}
+
+// 获取超时的Actor列表
+fn (self: *ActorStateManager) get_timeout_actors(timeout_ms: int) []ActorId {
+    let mut timeout_actors = Vec.new();
+    let now = time.now();
+    let timeout_duration = time.duration_from_millis(timeout_ms);
+    let timeout_threshold = time.time_sub(now, timeout_duration);
+    
+    for (self.store.states.entries()) |entry| {
+        let actor_id = entry.0;
+        let state_info = entry.1;
+        
+        if (time.time_less(state_info.last_access_time, timeout_threshold)) {
+            timeout_actors.push(actor_id);
+        }
+    }
+    
+    return timeout_actors.to_array();
+}
+
+// 清理超时的Actor状态
+fn (self: *ActorStateManager) cleanup_timeout_states(timeout_ms: int) int {
+    let timeout_actors = self.get_timeout_actors(timeout_ms);
+    let mut cleaned_count = 0;
+    
+    for (timeout_actors) |actor_id| {
+        self.store.remove_state_info(actor_id);
+        cleaned_count = cleaned_count + 1;
+    }
+    
+    return cleaned_count;
+}
+
+// 获取Actor状态统计信息
+struct ActorStateStats {
+    total_actors: int,
+    active_actors: int,
+    inactive_actors: int,
+    deactivating_actors: int,
+    total_messages: int,
+    total_errors: int,
+    average_message_count: int,
+}
+
+fn (self: *ActorStateManager) get_state_stats() ActorStateStats {
+    let mut stats = ActorStateStats {
+        total_actors: 0,
+        active_actors: 0,
+        inactive_actors: 0,
+        deactivating_actors: 0,
+        total_messages: 0,
+        total_errors: 0,
+        average_message_count: 0,
+    };
+    
+    for (self.store.states.values()) |state_info| {
+        stats.total_actors = stats.total_actors + 1;
+        stats.total_messages = stats.total_messages + state_info.message_count;
+        stats.total_errors = stats.total_errors + state_info.error_count;
+        
+        match state_info.state {
+            ActorState.Active => {
+                stats.active_actors = stats.active_actors + 1;
+            },
+            ActorState.Inactive => {
+                stats.inactive_actors = stats.inactive_actors + 1;
+            },
+            ActorState.Deactivating => {
+                stats.deactivating_actors = stats.deactivating_actors + 1;
+            }
+        }
+    }
+    
+    if (stats.total_actors > 0) {
+        stats.average_message_count = stats.total_messages / stats.total_actors;
+    }
+    
+    return stats;
+}
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+// 创建默认状态管理器配置
+fn default_state_manager_config() (int, int) {
+    return (10000, 300000); // 最大10000个状态，默认超时5分钟
+}
+
+// 状态转字符串
+fn actor_state_to_string(state: ActorState) string {
+    match state {
+        ActorState.Active => {
+            return "Active";
+        },
+        ActorState.Inactive => {
+            return "Inactive";
+        },
+        ActorState.Deactivating => {
+            return "Deactivating";
+        }
+    }
+}

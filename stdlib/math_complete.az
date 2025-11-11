@@ -1,0 +1,409 @@
+// std.math - 数学函数模块
+// 版本: v1.0.0
+// 日期: 2025-10-30
+
+module std.math;
+
+// ============================================================================
+// C数学库接口
+// ============================================================================
+
+extern "C" {
+    // 基础运算
+    fn fabs(x: float) float;
+    fn fmod(x: float, y: float) float;
+    fn remainder(x: float, y: float) float;
+    
+    // 幂和根
+    fn pow(base: float, exp: float) float;
+    fn sqrt(x: float) float;
+    fn cbrt(x: float) float;
+    fn hypot(x: float, y: float) float;
+    
+    // 指数和对数
+    fn exp(x: float) float;
+    fn exp2(x: float) float;
+    fn expm1(x: float) float;
+    fn log(x: float) float;
+    fn log10(x: float) float;
+    fn log2(x: float) float;
+    fn log1p(x: float) float;
+    
+    // 三角函数
+    fn sin(x: float) float;
+    fn cos(x: float) float;
+    fn tan(x: float) float;
+    fn asin(x: float) float;
+    fn acos(x: float) float;
+    fn atan(x: float) float;
+    fn atan2(y: float, x: float) float;
+    
+    // 双曲函数
+    fn sinh(x: float) float;
+    fn cosh(x: float) float;
+    fn tanh(x: float) float;
+    fn asinh(x: float) float;
+    fn acosh(x: float) float;
+    fn atanh(x: float) float;
+    
+    // 取整
+    fn ceil(x: float) float;
+    fn floor(x: float) float;
+    fn trunc(x: float) float;
+    fn round(x: float) float;
+    
+    // 其他
+    fn copysign(x: float, y: float) float;
+    fn nan(tagp: *char) float;
+    fn isnan(x: float) int;
+    fn isinf(x: float) int;
+    fn isfinite(x: float) int;
+}
+
+// ============================================================================
+// 数学常量
+// ============================================================================
+
+pub const PI: float = 3.14159265358979323846;
+pub const E: float = 2.71828182845904523536;
+pub const SQRT2: float = 1.41421356237309504880;
+pub const SQRT3: float = 1.73205080756887729352;
+pub const LN2: float = 0.69314718055994530942;
+pub const LN10: float = 2.30258509299404568402;
+pub const LOG2E: float = 1.44269504088896340736;
+pub const LOG10E: float = 0.43429448190325182765;
+
+pub const TAU: float = 6.28318530717958647692;  // 2 * PI
+pub const PHI: float = 1.61803398874989484820;  // 黄金比例
+
+pub const INFINITY: float = 1.0 / 0.0;
+pub const NEG_INFINITY: float = -1.0 / 0.0;
+pub const NAN: float = 0.0 / 0.0;
+
+// ============================================================================
+// 基础运算
+// ============================================================================
+
+/// 整数绝对值
+pub fn abs(x: int) int {
+    return if (x < 0) -x else x;
+}
+
+/// 浮点数绝对值
+pub fn abs_f(x: float) float {
+    return fabs(x);
+}
+
+/// 整数最小值
+pub fn min(a: int, b: int) int {
+    return if (a < b) a else b;
+}
+
+/// 整数最大值
+pub fn max(a: int, b: int) int {
+    return if (a > b) a else b;
+}
+
+/// 浮点数最小值
+pub fn min_f(a: float, b: float) float {
+    return if (a < b) a else b;
+}
+
+/// 浮点数最大值
+pub fn max_f(a: float, b: float) float {
+    return if (a > b) a else b;
+}
+
+/// 限制在范围内
+pub fn clamp(x: int, min_val: int, max_val: int) int {
+    if (x < min_val) return min_val;
+    if (x > max_val) return max_val;
+    return x;
+}
+
+/// 浮点数限制在范围内
+pub fn clamp_f(x: float, min_val: float, max_val: float) float {
+    if (x < min_val) return min_val;
+    if (x > max_val) return max_val;
+    return x;
+}
+
+/// 符号函数
+pub fn sign(x: float) int {
+    if (x > 0.0) return 1;
+    if (x < 0.0) return -1;
+    return 0;
+}
+
+/// 复制符号
+pub fn copysign_f(x: float, y: float) float {
+    return copysign(x, y);
+}
+
+// ============================================================================
+// 幂和根
+// ============================================================================
+
+/// 幂运算
+pub fn pow_f(base: float, exp: float) float {
+    return pow(base, exp);
+}
+
+/// 平方根
+pub fn sqrt_f(x: float) float {
+    return sqrt(x);
+}
+
+/// 立方根
+pub fn cbrt_f(x: float) float {
+    return cbrt(x);
+}
+
+/// 平方
+pub fn square(x: float) float {
+    return x * x;
+}
+
+/// 立方
+pub fn cube(x: float) float {
+    return x * x * x;
+}
+
+/// 斜边长度
+pub fn hypot_f(x: float, y: float) float {
+    return hypot(x, y);
+}
+
+// ============================================================================
+// 指数和对数
+// ============================================================================
+
+/// 自然指数
+pub fn exp_f(x: float) float {
+    return exp(x);
+}
+
+/// 2的幂
+pub fn exp2_f(x: float) float {
+    return exp2(x);
+}
+
+/// exp(x) - 1
+pub fn expm1_f(x: float) float {
+    return expm1(x);
+}
+
+/// 自然对数
+pub fn log_f(x: float) float {
+    return log(x);
+}
+
+/// 以10为底的对数
+pub fn log10_f(x: float) float {
+    return log10(x);
+}
+
+/// 以2为底的对数
+pub fn log2_f(x: float) float {
+    return log2(x);
+}
+
+/// log(1 + x)
+pub fn log1p_f(x: float) float {
+    return log1p(x);
+}
+
+// ============================================================================
+// 三角函数
+// ============================================================================
+
+/// 正弦
+pub fn sin_f(x: float) float {
+    return sin(x);
+}
+
+/// 余弦
+pub fn cos_f(x: float) float {
+    return cos(x);
+}
+
+/// 正切
+pub fn tan_f(x: float) float {
+    return tan(x);
+}
+
+/// 反正弦
+pub fn asin_f(x: float) float {
+    return asin(x);
+}
+
+/// 反余弦
+pub fn acos_f(x: float) float {
+    return acos(x);
+}
+
+/// 反正切
+pub fn atan_f(x: float) float {
+    return atan(x);
+}
+
+/// 两参数反正切
+pub fn atan2_f(y: float, x: float) float {
+    return atan2(y, x);
+}
+
+// ============================================================================
+// 双曲函数
+// ============================================================================
+
+/// 双曲正弦
+pub fn sinh_f(x: float) float {
+    return sinh(x);
+}
+
+/// 双曲余弦
+pub fn cosh_f(x: float) float {
+    return cosh(x);
+}
+
+/// 双曲正切
+pub fn tanh_f(x: float) float {
+    return tanh(x);
+}
+
+/// 反双曲正弦
+pub fn asinh_f(x: float) float {
+    return asinh(x);
+}
+
+/// 反双曲余弦
+pub fn acosh_f(x: float) float {
+    return acosh(x);
+}
+
+/// 反双曲正切
+pub fn atanh_f(x: float) float {
+    return atanh(x);
+}
+
+// ============================================================================
+// 取整函数
+// ============================================================================
+
+/// 向上取整
+pub fn ceil_f(x: float) float {
+    return ceil(x);
+}
+
+/// 向下取整
+pub fn floor_f(x: float) float {
+    return floor(x);
+}
+
+/// 向零取整
+pub fn trunc_f(x: float) float {
+    return trunc(x);
+}
+
+/// 四舍五入
+pub fn round_f(x: float) float {
+    return round(x);
+}
+
+/// 转换为整数（向零取整）
+pub fn to_int(x: float) int {
+    return trunc(x) as int;
+}
+
+// ============================================================================
+// 角度转换
+// ============================================================================
+
+/// 弧度转角度
+pub fn to_degrees(radians: float) float {
+    return radians * 180.0 / PI;
+}
+
+/// 角度转弧度
+pub fn to_radians(degrees: float) float {
+    return degrees * PI / 180.0;
+}
+
+// ============================================================================
+// 特殊值检查
+// ============================================================================
+
+/// 检查是否为NaN
+pub fn is_nan(x: float) bool {
+    return isnan(x) != 0;
+}
+
+/// 检查是否为无穷大
+pub fn is_infinite(x: float) bool {
+    return isinf(x) != 0;
+}
+
+/// 检查是否为有限值
+pub fn is_finite(x: float) bool {
+    return isfinite(x) != 0;
+}
+
+/// 检查是否为正常值
+pub fn is_normal(x: float) bool {
+    return is_finite(x) && x != 0.0;
+}
+
+// ============================================================================
+// 其他数学函数
+// ============================================================================
+
+/// 浮点数取模
+pub fn fmod_f(x: float, y: float) float {
+    return fmod(x, y);
+}
+
+/// 余数
+pub fn remainder_f(x: float, y: float) float {
+    return remainder(x, y);
+}
+
+/// 阶乘
+pub fn factorial(n: int) int {
+    if (n <= 1) return 1;
+    var result = 1;
+    for (var i = 2; i <= n; i = i + 1) {
+        result = result * i;
+    }
+    return result;
+}
+
+/// 最大公约数
+pub fn gcd(a: int, b: int) int {
+    var x = abs(a);
+    var y = abs(b);
+    
+    while (y != 0) {
+        let temp = y;
+        y = x % y;
+        x = temp;
+    }
+    
+    return x;
+}
+
+/// 最小公倍数
+pub fn lcm(a: int, b: int) int {
+    if (a == 0 || b == 0) return 0;
+    return abs(a * b) / gcd(a, b);
+}
+
+/// 线性插值
+pub fn lerp(a: float, b: float, t: float) float {
+    return a + (b - a) * t;
+}
+
+/// 平滑插值
+pub fn smoothstep(edge0: float, edge1: float, x: float) float {
+    let t = clamp_f((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}

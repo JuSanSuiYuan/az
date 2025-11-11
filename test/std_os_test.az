@@ -1,0 +1,98 @@
+// std_os_test.az - 操作系统接口标准库测试
+module test.std_os;
+
+import std.test;
+import std.os;
+import std.string;
+
+fn test_environment_variables() void {
+    // 测试获取环境变量
+    let path = os.getenv("PATH");
+    test.assert(path != null, "PATH环境变量应该存在");
+
+    // 测试设置环境变量
+    let set_result = os.setenv("TEST_VAR", "test_value");
+    test.assert(!set_result.is_err(), "设置环境变量应该成功");
+
+    // 测试获取设置的环境变量
+    let test_var = os.getenv("TEST_VAR");
+    test.assert(test_var != null && string.equals(test_var.?, "test_value"), "获取设置的环境变量应该成功");
+
+    // 测试获取环境变量（带默认值）
+    let default_value = os.getenv_or("NON_EXISTENT_VAR", "default");
+    test.assert(string.equals(default_value, "default"), "获取不存在的环境变量应该返回默认值");
+
+    // 测试删除环境变量
+    let unset_result = os.unsetenv("TEST_VAR");
+    test.assert(!unset_result.is_err(), "删除环境变量应该成功");
+    test.assert(os.getenv("TEST_VAR") == null, "删除后的环境变量应该不存在");
+}
+
+fn test_process_info() void {
+    // 测试进程ID
+    let pid = os.getpid();
+    test.assert(pid > 0, "进程ID应该大于0");
+
+    // 测试父进程ID
+    let ppid = os.getppid();
+    test.assert(ppid >= 0, "父进程ID应该大于等于0");
+
+    // 测试程序名
+    let prog_name = os.program_name();
+    test.assert(prog_name.len > 0, "程序名不应该为空");
+}
+
+fn test_system_info() void {
+    // 测试操作系统名称
+    let os_name = os.os_name();
+    test.assert(os_name.len > 0, "操作系统名称不应该为空");
+
+    // 测试架构
+    let arch = os.arch();
+    test.assert(arch.len > 0, "架构信息不应该为空");
+
+    // 测试主机名
+    let hostname_result = os.hostname();
+    test.assert(!hostname_result.is_err(), "获取主机名应该成功");
+
+    // 测试CPU核心数
+    let cpu_count = os.cpu_count();
+    test.assert(cpu_count > 0, "CPU核心数应该大于0");
+
+    // 测试系统版本
+    let sys_version = os.system_version();
+    test.assert(sys_version.len >= 0, "系统版本不应该为空");
+}
+
+fn test_paths() void {
+    // 测试当前工作目录
+    let cwd_result = os.getcwd();
+    test.assert(!cwd_result.is_err(), "获取当前工作目录应该成功");
+
+    // 测试主目录
+    let home = os.home_dir();
+    test.assert(home != null, "主目录应该存在");
+
+    // 测试临时目录
+    let temp = os.temp_dir();
+    test.assert(temp.len > 0, "临时目录不应该为空");
+}
+
+fn test_user_info() void {
+    // 测试用户ID
+    let uid = os.getuid();
+    test.assert(uid >= 0, "用户ID应该大于等于0");
+
+    // 测试用户名
+    let username = os.username();
+    test.assert(username != null, "用户名应该存在");
+}
+
+fn main() void {
+    test_environment_variables();
+    test_process_info();
+    test_system_info();
+    test_paths();
+    test_user_info();
+    test.summary();
+}

@@ -1,0 +1,428 @@
+// std.math - 数学函数模块
+module std.math;
+
+// ============================================================================
+// 基础数学函数
+// ============================================================================
+
+// 平方根
+extern fn az_sqrt(x: float) float;
+
+// 幂运算
+extern fn az_pow(x: float, y: float) float;
+
+// 绝对值（浮点）
+extern fn az_abs(x: float) float;
+
+// 绝对值（整数）
+extern fn az_abs_int(x: int) int;
+
+// ============================================================================
+// 三角函数
+// ============================================================================
+
+// 正弦
+fn sin(x: float) float {
+    // 使用泰勒级数近似实现
+    // sin(x) = x - x^3/3! + x^5/5! - x^7/7! + ...
+    let normalized_x = x % (2.0 * 3.14159265358979323846);  // 归一化到[0, 2π]
+    var result = normalized_x;
+    var term = normalized_x;
+    var n = 1;
+    
+    while (n < 10) {  // 计算前10项
+        term = term * normalized_x * normalized_x / ((2 * n) * (2 * n + 1));
+        if (n % 2 == 1) {
+            result = result - term;
+        } else {
+            result = result + term;
+        }
+        n = n + 1;
+    }
+    
+    return result;
+}
+
+// 余弦
+fn cos(x: float) float {
+    // 使用泰勒级数近似实现
+    // cos(x) = 1 - x^2/2! + x^4/4! - x^6/6! + ...
+    let normalized_x = x % (2.0 * 3.14159265358979323846);  // 归一化到[0, 2π]
+    var result = 1.0;
+    var term = 1.0;
+    var n = 1;
+    
+    while (n < 10) {  // 计算前10项
+        term = term * normalized_x * normalized_x / ((2 * n - 1) * (2 * n));
+        if (n % 2 == 1) {
+            result = result - term;
+        } else {
+            result = result + term;
+        }
+        n = n + 1;
+    }
+    
+    return result;
+}
+
+// 正切
+fn tan(x: float) float {
+    // tan(x) = sin(x) / cos(x)
+    let cos_x = cos(x);
+    if (cos_x == 0.0) {
+        // 在奇点处返回无穷大
+        return 1.0 / 0.0;
+    }
+    return sin(x) / cos_x;
+}
+
+// 反正弦
+fn asin(x: float) float {
+    // 简化实现：使用近似公式
+    // 实际实现应该更精确
+    if (x < -1.0 || x > 1.0) {
+        return 0.0;  // 超出定义域
+    }
+    
+    // 使用泰勒级数近似
+    var result = x;
+    var term = x;
+    var n = 1;
+    
+    while (n < 10) {
+        term = term * x * x * (2 * n - 1) * (2 * n - 1) / (2 * n * (2 * n + 1));
+        result = result + term;
+        n = n + 1;
+    }
+    
+    return result;
+}
+
+// 反余弦
+fn acos(x: float) float {
+    // acos(x) = π/2 - asin(x)
+    if (x < -1.0 || x > 1.0) {
+        return 0.0;  // 超出定义域
+    }
+    
+    return PI / 2.0 - asin(x);
+}
+
+// 反正切
+fn atan(x: float) float {
+    // 使用泰勒级数近似实现
+    // atan(x) = x - x^3/3 + x^5/5 - x^7/7 + ...
+    if (x == 0.0) {
+        return 0.0;
+    }
+    
+    var result = x;
+    var term = x;
+    var n = 1;
+    
+    while (n < 100) {  // 计算前100项以提高精度
+        term = term * x * x * (2 * n - 1) / (2 * n + 1);
+        if (n % 2 == 1) {
+            result = result - term;
+        } else {
+            result = result + term;
+        }
+        n = n + 1;
+    }
+    
+    return result;
+}
+
+// 反正切2
+fn atan2(y: float, x: float) float {
+    if (x > 0.0) {
+        return atan(y / x);
+    } else if (x < 0.0) {
+        if (y >= 0.0) {
+            return atan(y / x) + PI;
+        } else {
+            return atan(y / x) - PI;
+        }
+    } else {  // x == 0.0
+        if (y > 0.0) {
+            return PI / 2.0;
+        } else if (y < 0.0) {
+            return -PI / 2.0;
+        } else {
+            return 0.0;  // 未定义，返回0
+        }
+    }
+}
+
+// ============================================================================
+// 指数和对数
+// ============================================================================
+
+// 自然指数
+fn exp(x: float) float {
+    // 使用泰勒级数近似实现
+    // e^x = 1 + x + x^2/2! + x^3/3! + ...
+    var result = 1.0;
+    var term = 1.0;
+    var n = 1;
+    
+    while (n < 100) {  // 计算前100项
+        term = term * x / n;
+        result = result + term;
+        n = n + 1;
+    }
+    
+    return result;
+}
+
+// 自然对数
+fn log(x: float) float {
+    // 简化实现：使用近似算法
+    if (x <= 0.0) {
+        return -1.0 / 0.0;  // 负无穷大
+    }
+    
+    if (x == 1.0) {
+        return 0.0;
+    }
+    
+    // 使用泰勒级数近似
+    // ln(1+x) = x - x^2/2 + x^3/3 - x^4/4 + ... for |x| < 1
+    let y = x - 1.0;
+    var result = y;
+    var term = y;
+    var n = 2;
+    
+    while (n < 100) {
+        term = term * y;
+        if (n % 2 == 0) {
+            result = result - term / n;
+        } else {
+            result = result + term / n;
+        }
+        n = n + 1;
+    }
+    
+    return result;
+}
+
+// 以10为底的对数
+fn log10(x: float) float {
+    // log10(x) = ln(x) / ln(10)
+    return log(x) / log(10.0);
+}
+
+// 以2为底的对数
+fn log2(x: float) float {
+    // log2(x) = ln(x) / ln(2)
+    return log(x) / log(2.0);
+}
+
+// ============================================================================
+// 取整函数
+// ============================================================================
+
+// 向下取整
+fn floor(x: float) float {
+    let int_part = x as int;
+    let float_part = x - int_part as float;
+    
+    if (float_part == 0.0) {
+        return x;
+    }
+    
+    if (x >= 0.0) {
+        return int_part as float;
+    } else {
+        return (int_part - 1) as float;
+    }
+}
+
+// 向上取整
+fn ceil(x: float) float {
+    let int_part = x as int;
+    let float_part = x - int_part as float;
+    
+    if (float_part == 0.0) {
+        return x;
+    }
+    
+    if (x >= 0.0) {
+        return (int_part + 1) as float;
+    } else {
+        return int_part as float;
+    }
+}
+
+// 四舍五入
+fn round(x: float) float {
+    if (x >= 0.0) {
+        return floor(x + 0.5);
+    } else {
+        return ceil(x - 0.5);
+    }
+}
+
+// 截断
+fn trunc(x: float) float {
+    return x as int as float;
+}
+
+// ============================================================================
+// 其他数学函数
+// ============================================================================
+
+// 最大值
+fn max(a: int, b: int) int {
+    if (a > b) {
+        return a;
+    }
+    return b;
+}
+
+// 最小值
+fn min(a: int, b: int) int {
+    if (a < b) {
+        return a;
+    }
+    return b;
+}
+
+// 最大值（浮点）
+fn max_float(a: float, b: float) float {
+    if (a > b) {
+        return a;
+    }
+    return b;
+}
+
+// 最小值（浮点）
+fn min_float(a: float, b: float) float {
+    if (a < b) {
+        return a;
+    }
+    return b;
+}
+
+// 限制范围
+fn clamp(value: int, min_val: int, max_val: int) int {
+    if (value < min_val) {
+        return min_val;
+    }
+    if (value > max_val) {
+        return max_val;
+    }
+    return value;
+}
+
+// 限制范围（浮点）
+fn clamp_float(value: float, min_val: float, max_val: float) float {
+    if (value < min_val) {
+        return min_val;
+    }
+    if (value > max_val) {
+        return max_val;
+    }
+    return value;
+}
+
+// ============================================================================
+// 数学常量
+// ============================================================================
+
+const PI: float = 3.14159265358979323846;
+const E: float = 2.71828182845904523536;
+const TAU: float = 6.28318530717958647692;  // 2 * PI
+const PHI: float = 1.61803398874989484820;  // 黄金比例
+
+// ============================================================================
+// 新增功能
+// ============================================================================
+
+// 平方根
+fn sqrt(x: float) float {
+    return az_sqrt(x);
+}
+
+// 幂运算
+fn pow(base: float, exp: float) float {
+    return az_pow(base, exp);
+}
+
+// 绝对值（浮点）
+fn abs_f(x: float) float {
+    return az_abs(x);
+}
+
+// 绝对值（整数）
+fn abs_int(x: int) int {
+    return az_abs_int(x);
+}
+
+// 阶乘
+fn factorial(n: int) int {
+    if (n <= 1) return 1;
+    var result = 1;
+    for (var i = 2; i <= n; i = i + 1) {
+        result = result * i;
+    }
+    return result;
+}
+
+// 最大公约数
+fn gcd(a: int, b: int) int {
+    var x = abs_int(a);
+    var y = abs_int(b);
+    
+    while (y != 0) {
+        let temp = y;
+        y = x % y;
+        x = temp;
+    }
+    
+    return x;
+}
+
+// 最小公倍数
+fn lcm(a: int, b: int) int {
+    if (a == 0 || b == 0) return 0;
+    return abs_int(a * b) / gcd(a, b);
+}
+
+// 弧度转角度
+fn to_degrees(radians: float) float {
+    return radians * 180.0 / PI;
+}
+
+// 角度转弧度
+fn to_radians(degrees: float) float {
+    return degrees * PI / 180.0;
+}
+
+// 线性插值
+fn lerp(a: float, b: float, t: float) float {
+    return a + (b - a) * t;
+}
+
+// 平方
+fn square(x: float) float {
+    return x * x;
+}
+
+// 立方
+fn cube(x: float) float {
+    return x * x * x;
+}
+
+// 倒数
+fn reciprocal(x: float) float {
+    if (x == 0.0) return 0.0;
+    return 1.0 / x;
+}
+
+// 符号函数
+fn sign(x: float) int {
+    if (x > 0.0) return 1;
+    if (x < 0.0) return -1;
+    return 0;
+}

@@ -1,0 +1,459 @@
+// std.actor.cluster - Actor集群模块
+// 提供Actor集群和分布式支持
+module std.actor.cluster;
+
+import std.actor.{Actor, ActorId, ActorRef, ActorSystem, Result, Error};
+import std.actor.runtime.{ActorInstance, RuntimeManager};
+import std.collections.{Vec, HashMap};
+import std.string;
+import std.net; // 假设未来会实现网络模块
+import std.time;
+import std.mem;
+
+// ============================================================================
+// 集群相关类型定义
+// ============================================================================
+
+// 节点ID
+struct NodeId {
+    id: string,
+}
+
+// 节点状态
+enum NodeStatus {
+    Active,      // 活跃
+    Inactive,    // 不活跃
+    Joining,     // 正在加入集群
+    Leaving,     // 正在离开集群
+}
+
+// 集群节点信息
+struct ClusterNode {
+    id: NodeId,
+    address: string,        // 节点地址
+    port: int,             // 节点端口
+    status: NodeStatus,
+    last_heartbeat: time.Time, // 最后心跳时间
+    actor_count: int,      // 托管的Actor数量
+}
+
+// 集群配置
+struct ClusterConfig {
+    node_id: NodeId,
+    listen_address: string,
+    listen_port: int,
+    seed_nodes: Vec<string>,   // 种子节点地址列表
+    heartbeat_interval_ms: int, // 心跳间隔（毫秒）
+    heartbeat_timeout_ms: int,  // 心跳超时（毫秒）
+    gossip_interval_ms: int,    // gossip协议间隔（毫秒）
+}
+
+// 集群成员变更事件
+enum ClusterEvent {
+    NodeJoined(NodeId),      // 节点加入
+    NodeLeft(NodeId),        // 节点离开
+    NodeUnreachable(NodeId), // 节点不可达
+    NodeReachable(NodeId),   // 节点可达
+}
+
+// 集群状态
+enum ClusterState {
+    Starting,    // 启动中
+    Running,     // 运行中
+    Stopping,    // 停止中
+    Stopped,     // 已停止
+}
+
+// ============================================================================
+// 集群管理器
+// ============================================================================
+
+// 集群管理器
+struct ClusterManager {
+    config: ClusterConfig,
+    local_node: ClusterNode,
+    members: HashMap<NodeId, ClusterNode>,
+    cluster_state: ClusterState,
+    event_handlers: Vec<fn(ClusterEvent) void>, // 集群事件处理器
+}
+
+// ============================================================================
+// 集群管理器实现
+// ============================================================================
+
+// 创建集群配置
+fn default_cluster_config(node_id: NodeId, address: string, port: int) ClusterConfig {
+    return ClusterConfig {
+        node_id: node_id,
+        listen_address: address,
+        listen_port: port,
+        seed_nodes: Vec.new(),
+        heartbeat_interval_ms: 1000,    // 1秒
+        heartbeat_timeout_ms: 5000,     // 5秒
+        gossip_interval_ms: 2000,       // 2秒
+    };
+}
+
+// 创建集群管理器
+fn new_cluster_manager(config: ClusterConfig) ClusterManager {
+    let local_node = ClusterNode {
+        id: config.node_id,
+        address: config.listen_address,
+        port: config.listen_port,
+        status: NodeStatus.Joining,
+        last_heartbeat: time.now(),
+        actor_count: 0,
+    };
+    
+    return ClusterManager {
+        config: config,
+        local_node: local_node,
+        members: HashMap.new(),
+        cluster_state: ClusterState.Starting,
+        event_handlers: Vec.new(),
+    };
+}
+
+// 启动集群
+fn (self: *ClusterManager) start() Result<void, Error> {
+    if (self.cluster_state != ClusterState.Starting) {
+        return Result.Err(Error.new("集群已在运行或已停止"));
+    }
+    
+    // 初始化本地节点
+    self.local_node.status = NodeStatus.Active;
+    self.cluster_state = ClusterState.Running;
+    
+    // 连接到种子节点
+    for (self.config.seed_nodes) |seed_address| {
+        // TODO: 实现连接到种子节点的逻辑
+        // 这里需要网络通信支持
+    }
+    
+    // 启动后台任务
+    // TODO: 启动心跳和gossip任务
+    
+    return Result.Ok(void);
+}
+
+// 停止集群
+fn (self: *ClusterManager) stop() Result<void, Error> {
+    if (self.cluster_state != ClusterState.Running) {
+        return Result.Ok(void); // 集群未运行或已在停止
+    }
+    
+    self.cluster_state = ClusterState.Stopping;
+    
+    // 通知其他节点离开集群
+    // TODO: 实现离开集群的通知逻辑
+    
+    self.cluster_state = ClusterState.Stopped;
+    return Result.Ok(void);
+}
+
+// 添加集群事件处理器
+fn (self: *ClusterManager) add_event_handler(handler: fn(ClusterEvent) void) void {
+    self.event_handlers.push(handler);
+}
+
+// 移除集群事件处理器
+fn (self: *ClusterManager) remove_event_handler(handler: fn(ClusterEvent) void) void {
+    // TODO: 实现从事件处理器列表中移除指定处理器
+}
+
+// 触发集群事件
+fn (self: *ClusterManager) trigger_event(event: ClusterEvent) void {
+    for (self.event_handlers) |handler| {
+        handler(event);
+    }
+}
+
+// ============================================================================
+// 节点管理
+// ============================================================================
+
+// 添加集群成员
+fn (self: *ClusterManager) add_member(node: ClusterNode) void {
+    self.members.insert(node.id, node);
+    self.trigger_event(ClusterEvent.NodeJoined(node.id));
+}
+
+// 移除集群成员
+fn (self: *ClusterManager) remove_member(node_id: NodeId) void {
+    if (self.members.contains_key(node_id)) {
+        self.members.remove(node_id);
+        self.trigger_event(ClusterEvent.NodeLeft(node_id));
+    }
+}
+
+// 更新节点状态
+fn (self: *ClusterManager) update_node_status(node_id: NodeId, status: NodeStatus) void {
+    let node = self.members.get_mut(node_id);
+    if (node.is_some()) {
+        let mut_node = node.unwrap();
+        let old_status = mut_node.status;
+        mut_node.status = status;
+        mut_node.last_heartbeat = time.now();
+        
+        // 触发状态变更事件
+        if (old_status == NodeStatus.Active && status != NodeStatus.Active) {
+            self.trigger_event(ClusterEvent.NodeUnreachable(node_id));
+        } else if (old_status != NodeStatus.Active && status == NodeStatus.Active) {
+            self.trigger_event(ClusterEvent.NodeReachable(node_id));
+        }
+    } else if (node_id.id == self.local_node.id.id) {
+        // 更新本地节点状态
+        let old_status = self.local_node.status;
+        self.local_node.status = status;
+        self.local_node.last_heartbeat = time.now();
+        
+        // 触发状态变更事件
+        if (old_status == NodeStatus.Active && status != NodeStatus.Active) {
+            self.trigger_event(ClusterEvent.NodeUnreachable(node_id));
+        } else if (old_status != NodeStatus.Active && status == NodeStatus.Active) {
+            self.trigger_event(ClusterEvent.NodeReachable(node_id));
+        }
+    }
+}
+
+// 获取节点信息
+fn (self: *ClusterManager) get_node(node_id: NodeId) Option<ClusterNode> {
+    if (node_id.id == self.local_node.id.id) {
+        return Option.Some(self.local_node);
+    }
+    return self.members.get(node_id);
+}
+
+// 获取所有活跃节点
+fn (self: *ClusterManager) get_active_nodes() Vec<ClusterNode> {
+    let mut result = Vec.new();
+    
+    // 添加本地节点（如果活跃）
+    if (self.local_node.status == NodeStatus.Active) {
+        result.push(self.local_node);
+    }
+    
+    // 添加其他活跃节点
+    for (self.members.values()) |node| {
+        if (node.status == NodeStatus.Active) {
+            result.push(node);
+        }
+    }
+    
+    return result;
+}
+
+// ============================================================================
+// 心跳和健康检查
+// ============================================================================
+
+// 发送心跳
+fn (self: *ClusterManager) send_heartbeat() Result<void, Error> {
+    if (self.cluster_state != ClusterState.Running) {
+        return Result.Ok(void);
+    }
+    
+    // 更新本地节点心跳时间
+    self.local_node.last_heartbeat = time.now();
+    
+    // TODO: 向其他节点发送心跳消息
+    // 这里需要网络通信支持
+    
+    return Result.Ok(void);
+}
+
+// 检查节点健康状态
+fn (self: *ClusterManager) check_node_health() void {
+    let now = time.now();
+    let timeout = time.duration_from_millis(self.config.heartbeat_timeout_ms);
+    let timeout_threshold = time.time_sub(now, timeout);
+    
+    // 检查其他节点的心跳
+    for (self.members.entries()) |entry| {
+        let node_id = entry.0;
+        let node = entry.1;
+        
+        if (node.status == NodeStatus.Active) {
+            if (time.time_less(node.last_heartbeat, timeout_threshold)) {
+                // 节点心跳超时，标记为不可达
+                self.update_node_status(node_id, NodeStatus.Inactive);
+            }
+        }
+    }
+    
+    // 检查本地节点（理论上不需要，但为了完整性）
+    if (self.local_node.status == NodeStatus.Active) {
+        if (time.time_less(self.local_node.last_heartbeat, timeout_threshold)) {
+            self.update_node_status(self.local_node.id, NodeStatus.Inactive);
+        }
+    }
+}
+
+// ============================================================================
+// Actor分布和路由
+// ============================================================================
+
+// 计算Actor应该托管在哪个节点上
+fn (self: *ClusterManager) get_actor_location(actor_id: ActorId) NodeId {
+    // 简单的一致性哈希实现
+    // 实际实现中可能需要更复杂的算法
+    
+    let hash_value = self.simple_hash(actor_id.id);
+    let active_nodes = self.get_active_nodes();
+    
+    if (active_nodes.is_empty()) {
+        // 没有活跃节点，返回本地节点
+        return self.local_node.id;
+    }
+    
+    let node_index = hash_value % active_nodes.len();
+    return active_nodes.get(node_index).id;
+}
+
+// 简单哈希函数
+fn (self: *ClusterManager) simple_hash(key: string) int {
+    let mut hash = 0;
+    for (key) |char| {
+        hash = hash * 31 + char as int;
+    }
+    return hash.abs(); // 确保返回正数
+}
+
+// 检查Actor是否应该在本地节点上
+fn (self: *ClusterManager) is_actor_local(actor_id: ActorId) bool {
+    let target_node = self.get_actor_location(actor_id);
+    return target_node.id == self.local_node.id.id;
+}
+
+// 获取远程Actor引用
+fn (self: *ClusterManager) get_remote_actor_ref<T: Actor>(actor_id: ActorId) Option<ActorRef<T>> {
+    let target_node = self.get_actor_location(actor_id);
+    
+    if (target_node.id == self.local_node.id.id) {
+        // Actor在本地节点上，应该通过本地运行时获取
+        return Option.None;
+    }
+    
+    // TODO: 创建远程Actor引用
+    // 这需要网络通信支持来发送消息到远程节点
+    return Option.None;
+}
+
+// ============================================================================
+// 集群通信（占位实现）
+// ============================================================================
+
+// 发送集群消息（占位）
+fn (self: *ClusterManager) send_cluster_message(target_node: NodeId, message: *any) Result<void, Error> {
+    // TODO: 实现集群节点间的消息发送
+    // 这需要网络通信支持
+    return Result.Err(Error.new("网络通信未实现"));
+}
+
+// 接收集群消息（占位）
+fn (self: *ClusterManager) receive_cluster_message(source_node: NodeId, message: *any) Result<void, Error> {
+    // TODO: 实现集群节点间的消息接收
+    // 这需要网络通信支持
+    return Result.Err(Error.new("网络通信未实现"));
+}
+
+// ============================================================================
+// 集群后台任务
+// ============================================================================
+
+// 心跳任务
+fn (self: *ClusterManager) heartbeat_task() void {
+    while (self.cluster_state == ClusterState.Running) {
+        let result = self.send_heartbeat();
+        if (result.is_err()) {
+            // TODO: 记录错误
+        }
+        
+        time.sleep_millis(self.config.heartbeat_interval_ms);
+    }
+}
+
+// 健康检查任务
+fn (self: *ClusterManager) health_check_task() void {
+    while (self.cluster_state == ClusterState.Running) {
+        self.check_node_health();
+        time.sleep_millis(1000); // 每秒检查一次
+    }
+}
+
+// Gossip协议任务
+fn (self: *ClusterManager) gossip_task() void {
+    while (self.cluster_state == ClusterState.Running) {
+        // TODO: 实现gossip协议，传播集群状态信息
+        time.sleep_millis(self.config.gossip_interval_ms);
+    }
+}
+
+// ============================================================================
+// 集群Actor系统扩展
+// ============================================================================
+
+// 集群Actor系统扩展
+struct ClusterActorSystem {
+    actor_system: ActorSystem,
+    cluster_manager: ClusterManager,
+    runtime_manager: RuntimeManager,
+}
+
+// 创建集群Actor系统
+fn new_cluster_actor_system(config: ClusterConfig) Result<ClusterActorSystem, Error> {
+    let actor_system = ActorSystem.new(default_config()); // 使用默认配置
+    let cluster_manager = new_cluster_manager(config);
+    let runtime_manager = RuntimeManager.new(&actor_system);
+    
+    let cluster_system = ClusterActorSystem {
+        actor_system: actor_system,
+        cluster_manager: cluster_manager,
+        runtime_manager: runtime_manager,
+    };
+    
+    return Result.Ok(cluster_system);
+}
+
+// 启动集群Actor系统
+fn (self: *ClusterActorSystem) start() Result<void, Error> {
+    let cluster_result = self.cluster_manager.start();
+    if (cluster_result.is_err()) {
+        return cluster_result;
+    }
+    
+    let system_result = self.actor_system.start();
+    if (system_result.is_err()) {
+        self.cluster_manager.stop();
+        return system_result;
+    }
+    
+    return Result.Ok(void);
+}
+
+// 停止集群Actor系统
+fn (self: *ClusterActorSystem) stop() Result<void, Error> {
+    let cluster_result = self.cluster_manager.stop();
+    let system_result = self.actor_system.stop();
+    
+    // 返回第一个错误（如果有的话）
+    if (cluster_result.is_err()) {
+        return cluster_result;
+    }
+    return system_result;
+}
+
+// 发送消息到Actor（支持集群）
+fn (self: *ClusterActorSystem) send_message<T: Actor>(actor_ref: ActorRef<T>, message: *any) Result<void, Error> {
+    let actor_id = actor_ref.id;
+    
+    // 检查Actor是否在本地节点上
+    if (self.cluster_manager.is_actor_local(actor_id)) {
+        // 在本地节点上，通过本地运行时发送
+        return self.runtime_manager.send_message_runtime(actor_id, message);
+    } else {
+        // 在远程节点上，通过集群发送
+        // TODO: 实现远程消息发送
+        return Result.Err(Error.new("远程Actor消息发送未实现"));
+    }
+}

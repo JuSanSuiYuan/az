@@ -1,0 +1,69 @@
+// std_time_test.az - 时间标准库测试
+module test.std_time;
+
+import std.test;
+import std.time;
+
+fn test_time_creation() void {
+    // 测试当前时间获取
+    let now = time.now();
+    test.assert(now.seconds > 0, "当前时间秒数应该大于0");
+
+    // 测试Duration创建
+    let dur_secs = time.duration_from_secs(10);
+    test.assert(dur_secs.seconds == 10 && dur_secs.nanos == 0, "duration_from_secs应该正确创建Duration");
+
+    let dur_millis = time.duration_from_millis(1500);
+    test.assert(dur_millis.seconds == 1 && dur_millis.nanos == 500000000, "duration_from_millis应该正确创建Duration");
+
+    let dur_micros = time.duration_from_micros(2500000);
+    test.assert(dur_micros.seconds == 2 && dur_micros.nanos == 500000000, "duration_from_micros应该正确创建Duration");
+}
+
+fn test_time_operations() void {
+    // 测试时间加法
+    let t1 = time.Time{ seconds: 100, nanos: 500000000 };
+    let dur = time.Duration{ seconds: 50, nanos: 300000000 };
+    let t2 = time.time_add(t1, dur);
+    test.assert(t2.seconds == 150 && t2.nanos == 800000000, "time_add应该正确计算时间");
+
+    // 测试时间减法
+    let t3 = time.Time{ seconds: 200, nanos: 800000000 };
+    let t4 = time.Time{ seconds: 100, nanos: 500000000 };
+    let diff = time.time_sub(t3, t4);
+    test.assert(diff.seconds == 100 && diff.nanos == 300000000, "time_sub应该正确计算时间差");
+}
+
+fn test_random_generation() void {
+    // 测试随机数生成
+    time.srand(12345); // 设置种子以获得可预测的结果
+    let r1 = time.rand();
+    let r2 = time.rand();
+    test.assert(r1 != r2, "连续调用rand应该产生不同的值");
+
+    // 测试范围随机数
+    let r3 = time.rand_range(10, 20);
+    test.assert(r3 >= 10 && r3 < 20, "rand_range应该产生指定范围内的值");
+
+    // 测试浮点随机数
+    let r4 = time.rand_float();
+    test.assert(r4 >= 0.0 && r4 < 1.0, "rand_float应该产生[0,1)范围内的值");
+}
+
+fn test_stopwatch() void {
+    // 测试计时器功能
+    let sw = time.stopwatch_new();
+    test.assert(sw.elapsed.seconds == 0 && sw.elapsed.nanos == 0, "新计时器的已用时间应该为0");
+
+    // 测试重置功能
+    time.stopwatch_reset(sw);
+    test.assert(sw.elapsed.seconds == 0 && sw.elapsed.nanos == 0, "重置后的计时器已用时间应该为0");
+}
+
+fn main() void {
+    test_time_creation();
+    test_time_operations();
+    test_random_generation();
+    test_stopwatch();
+    test.summary();
+}

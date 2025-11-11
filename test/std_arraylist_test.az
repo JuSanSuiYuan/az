@@ -1,0 +1,246 @@
+// std_arraylist_test.az - ArrayList标准库测试
+module test.std_arraylist;
+
+import std.test;
+import std.collections.arraylist;
+
+fn test_arraylist_basic() void {
+    // 测试创建ArrayList
+    let list = arraylist.new<int>();
+    test.assert(list.is_empty(), "新创建的ArrayList应该为空");
+    test.assert(list.len() == 0, "新创建的ArrayList长度应该为0");
+    test.assert(list.Count() == 0, "新创建的ArrayList Count应该为0"); // C#风格
+
+    // 测试添加元素 (Java风格)
+    list.add(1);
+    list.add(2);
+    list.add(3);
+    test.assert(list.len() == 3, "添加3个元素后长度应该为3");
+
+    // 测试添加元素 (C#风格)
+    let list2 = arraylist.new<int>();
+    list2.Add(1); // C#风格
+    list2.Add(2);
+    list2.Add(3);
+    test.assert(list2.len() == 3, "C#风格添加3个元素后长度应该为3");
+
+    // 测试获取元素
+    let first = list.get(0);
+    test.assert(first.is_some(), "应该能获取到第一个元素");
+    test.assert(first.unwrap() == 1, "第一个元素应该是1");
+
+    let second = list.get(1);
+    test.assert(second.is_some(), "应该能获取到第二个元素");
+    test.assert(second.unwrap() == 2, "第二个元素应该是2");
+
+    let third = list.get(2);
+    test.assert(third.is_some(), "应该能获取到第三个元素");
+    test.assert(third.unwrap() == 3, "第三个元素应该是3");
+
+    // 测试索引越界
+    let out_of_bounds = list.get(3);
+    test.assert(out_of_bounds.is_none(), "索引越界应该返回None");
+}
+
+fn test_arraylist_insert_remove() void {
+    let list = arraylist.new<string>();
+    
+    // 测试插入元素 (Java风格)
+    list.add("first");
+    list.add("third");
+    list.add_at(1, "second"); // Java风格插入
+    
+    test.assert(list.len() == 3, "插入元素后长度应该为3");
+    test.assert(list.get(0).unwrap() == "first", "索引0应该是'first'");
+    test.assert(list.get(1).unwrap() == "second", "索引1应该是'second'");
+    test.assert(list.get(2).unwrap() == "third", "索引2应该是'third'");
+
+    // 测试插入元素 (C#风格)
+    let list2 = arraylist.new<string>();
+    list2.Add("first");
+    list2.Add("third");
+    list2.insert(1, "second"); // C#风格插入
+    
+    test.assert(list2.len() == 3, "C#风格插入元素后长度应该为3");
+    test.assert(list2.get(0).unwrap() == "first", "索引0应该是'first'");
+    test.assert(list2.get(1).unwrap() == "second", "索引1应该是'second'");
+    test.assert(list2.get(2).unwrap() == "third", "索引2应该是'third'");
+
+    // 测试移除元素 (Java风格)
+    let removed = list.remove_at(1); // Java风格移除
+    test.assert(removed.is_some(), "应该能移除元素");
+    test.assert(removed.unwrap() == "second", "移除的元素应该是'second'");
+    test.assert(list.len() == 2, "移除元素后长度应该为2");
+
+    // 测试移除元素 (C#风格)
+    let removed2 = list2.RemoveAt(1); // C#风格移除
+    test.assert(removed2.is_some(), "C#风格应该能移除元素");
+    test.assert(removed2.unwrap() == "second", "C#风格移除的元素应该是'second'");
+    test.assert(list2.len() == 2, "C#风格移除元素后长度应该为2");
+}
+
+fn test_arraylist_search() void {
+    let list = arraylist.new<int>();
+    list.add(10);
+    list.add(20);
+    list.add(30);
+    list.add(20); // 重复元素
+
+    // 测试查找元素 (Java风格)
+    let index = list.index_of(20);
+    test.assert(index == 1, "第一个20的索引应该是1");
+
+    let last_index = list.last_index_of(20);
+    test.assert(last_index == 3, "最后一个20的索引应该是3");
+
+    // 测试查找元素 (带起始位置)
+    let index_from = list.index_of_from(20, 2);
+    test.assert(index_from == 3, "从索引2开始查找20的索引应该是3");
+
+    let not_found = list.index_of(40);
+    test.assert(not_found == -1, "未找到的元素索引应该是-1");
+
+    // 测试包含检查
+    test.assert(list.contains(20), "应该包含20");
+    test.assert(!list.contains(40), "不应该包含40");
+
+    // 测试C#风格的查找
+    let exists = list.exists(fn(x: int) bool { return x > 25; });
+    test.assert(exists, "应该存在大于25的元素");
+
+    let found = list.find(fn(x: int) bool { return x > 25; });
+    test.assert(found.is_some(), "应该能找到大于25的元素");
+    test.assert(found.unwrap() == 30, "找到的元素应该是30");
+
+    let find_index = list.find_index(fn(x: int) bool { return x > 25; });
+    test.assert(find_index == 2, "大于25的元素索引应该是2");
+}
+
+fn test_arraylist_iteration() void {
+    let list = arraylist.new<int>();
+    list.add(1);
+    list.add(2);
+    list.add(3);
+    list.add(4);
+    list.add(5);
+
+    // 测试映射 (Java Stream风格)
+    let doubled = list.map(fn(x: int) int { return x * 2; });
+    test.assert(doubled.len() == 5, "映射后的列表长度应该为5");
+    test.assert(doubled.get(0).unwrap() == 2, "第一个元素应该是2");
+    test.assert(doubled.get(1).unwrap() == 4, "第二个元素应该是4");
+
+    // 测试映射 (C# ConvertAll风格)
+    let doubled2 = list.convert_all(fn(x: int) int { return x * 2; });
+    test.assert(doubled2.len() == 5, "C#风格映射后的列表长度应该为5");
+
+    // 测试过滤 (Java Stream风格)
+    let evens = list.filter(fn(x: int) bool { return x % 2 == 0; });
+    test.assert(evens.len() == 2, "过滤后的列表长度应该为2");
+    test.assert(evens.get(0).unwrap() == 2, "第一个偶数应该是2");
+    test.assert(evens.get(1).unwrap() == 4, "第二个偶数应该是4");
+
+    // 测试过滤 (C# FindAll风格)
+    let evens2 = list.find_all(fn(x: int) bool { return x % 2 == 0; });
+    test.assert(evens2.len() == 2, "C#风格过滤后的列表长度应该为2");
+
+    // 测试折叠
+    let sum = list.fold(0, fn(acc: int, x: int) int { return acc + x; });
+    test.assert(sum == 15, "所有元素的和应该是15");
+
+    // 测试所有/任何 (Java风格)
+    test.assert(list.all(fn(x: int) bool { return x > 0; }), "所有元素都应该大于0");
+    test.assert(list.any(fn(x: int) bool { return x == 3; }), "应该有元素等于3");
+    test.assert(!list.any(fn(x: int) bool { return x > 10; }), "不应该有元素大于10");
+
+    // 测试所有/任何 (C#风格)
+    test.assert(list.true_for_all(fn(x: int) bool { return x > 0; }), "C#风格所有元素都应该大于0");
+    test.assert(list.exists(fn(x: int) bool { return x == 3; }), "C#风格应该有元素等于3");
+}
+
+fn test_arraylist_sort() void {
+    let list = arraylist.new<int>();
+    list.add(3);
+    list.add(1);
+    list.add(4);
+    list.add(1);
+    list.add(5);
+
+    // 测试排序
+    list.sort();
+    test.assert(list.get(0).unwrap() == 1, "排序后第一个元素应该是1");
+    test.assert(list.get(1).unwrap() == 1, "排序后第二个元素应该是1");
+    test.assert(list.get(2).unwrap() == 3, "排序后第三个元素应该是3");
+    test.assert(list.get(3).unwrap() == 4, "排序后第四个元素应该是4");
+    test.assert(list.get(4).unwrap() == 5, "排序后第五个元素应该是5");
+
+    // 测试反转
+    list.reverse();
+    test.assert(list.get(0).unwrap() == 5, "反转后第一个元素应该是5");
+    test.assert(list.get(4).unwrap() == 1, "反转后第五个元素应该是1");
+}
+
+fn test_arraylist_range_operations() void {
+    let list = arraylist.new<int>();
+    for (var i = 1; i <= 10; i = i + 1) {
+        list.add(i);
+    }
+
+    // 测试获取子列表 (Java风格)
+    let sub = list.sub_list(2, 5);
+    test.assert(sub.len() == 3, "子列表长度应该是3");
+    test.assert(sub.get(0).unwrap() == 3, "子列表第一个元素应该是3");
+    test.assert(sub.get(1).unwrap() == 4, "子列表第二个元素应该是4");
+    test.assert(sub.get(2).unwrap() == 5, "子列表第三个元素应该是5");
+
+    // 测试获取子列表 (C#风格)
+    let range = list.get_range(2, 3);
+    test.assert(range.len() == 3, "C#风格子列表长度应该是3");
+    test.assert(range.get(0).unwrap() == 3, "C#风格子列表第一个元素应该是3");
+
+    // 测试移除范围 (C#风格)
+    let list2 = list.clone();
+    list2.remove_range(2, 3); // 从索引2开始移除3个元素
+    test.assert(list2.len() == 7, "移除范围后长度应该是7");
+    test.assert(list2.get(0).unwrap() == 1, "移除范围后第一个元素应该是1");
+    test.assert(list2.get(1).unwrap() == 2, "移除范围后第二个元素应该是2");
+    test.assert(list2.get(2).unwrap() == 6, "移除范围后第三个元素应该是6");
+
+    // 测试添加范围
+    let list3 = arraylist.new<int>();
+    list3.add(100);
+    list3.add(200);
+    list3.add_range(sub); // 添加子列表的所有元素
+    test.assert(list3.len() == 5, "添加范围后长度应该是5");
+    test.assert(list3.get(0).unwrap() == 100, "添加范围后第一个元素应该是100");
+    test.assert(list3.get(3).unwrap() == 3, "添加范围后第四个元素应该是3");
+}
+
+fn test_arraylist_memory_management() void {
+    let list = arraylist.new<int>();
+    
+    // 测试确保容量
+    list.ensure_capacity(100);
+    test.assert(list.capacity() >= 100, "容量应该至少为100");
+
+    // 添加元素
+    for (var i = 0; i < 50; i = i + 1) {
+        list.add(i);
+    }
+    test.assert(list.len() == 50, "添加50个元素后长度应该是50");
+
+    // 测试收缩到合适大小
+    list.trim_to_size();
+    test.assert(list.capacity() >= list.len(), "收缩后容量应该至少等于长度");
+}
+
+fn main() void {
+    test_arraylist_basic();
+    test_arraylist_insert_remove();
+    test_arraylist_search();
+    test_arraylist_iteration();
+    test_arraylist_sort();
+    test_arraylist_range_operations();
+    test_arraylist_memory_management();
+    test.summary();
+}

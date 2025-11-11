@@ -1,0 +1,119 @@
+// AZ编译器主程序
+
+import std.io;
+import std.fs;
+import compiler.lexer;
+import compiler.parser;
+import compiler.semantic;
+import compiler.codegen;
+import compiler.error;
+
+fn main() int {
+    println("AZ编译器 v0.1.0");
+    println("采用C3风格的错误处理");
+    println("");
+    
+    // 获取命令行参数
+    let args = get_args();
+    if (args.length < 2) {
+        println("用法: az <源文件>");
+        return 1;
+    }
+    
+    let filename = args[1];
+    
+    // 编译文件
+    let result = compile_file(filename);
+    
+    match result {
+        Result.Ok(_) => {
+            println("编译成功！");
+            return 0;
+        },
+        Result.Err(error) => {
+            report_error(error);
+            return 1;
+        }
+    }
+}
+
+// 编译文件
+fn compile_file(filename: string) Result<void> {
+    println("正在编译: " + filename);
+    
+    // 1. 读取源文件
+    let source_result = read_file(filename);
+    if (source_result is Err) {
+        return Result.Err(make_error(
+            ErrorKind.IOError,
+            "无法读取文件: " + filename,
+            0, 0, filename
+        ));
+    }
+    let source = source_result.value;
+    
+    // 2. 词法分析
+    println("[1/4] 词法分析...");
+    var lexer = new_lexer(source, filename);
+    let tokens_result = tokenize(&lexer);
+    if (tokens_result is Err) {
+        return Result.Err(tokens_result.error);
+    }
+    let tokens = tokens_result.value;
+    println("  生成了 " + tokens.length + " 个token");
+    
+    // 3. 语法分析
+    println("[2/4] 语法分析...");
+    var parser = new_parser(tokens, filename);
+    let ast_result = parse(&parser);
+    if (ast_result is Err) {
+        return Result.Err(ast_result.error);
+    }
+    let ast = ast_result.value;
+    println("  生成了 " + ast.statements.length + " 个顶层语句");
+    
+    // 4. 语义分析
+    println("[3/4] 语义分析...");
+    var analyzer = new_semantic_analyzer(filename);
+    let semantic_result = analyze(&analyzer, &ast);
+    if (semantic_result is Err) {
+        return Result.Err(semantic_result.error);
+    }
+    println("  语义检查通过");
+    
+    // 5. 代码生成和执行
+    println("[4/4] 执行程序...");
+    println("---输出---");
+    var interpreter = new_interpreter();
+    let exec_result = execute(&interpreter, &ast);
+    if (exec_result is Err) {
+        return Result.Err(exec_result.error);
+    }
+    println("----------");
+    
+    return Result.Ok(void);
+}
+
+// 辅助函数：读取文件
+fn read_file(filename: string) Result<string> {
+    // 这里应该调用实际的文件读取函数
+    // 为了演示，返回一个示例程序
+    return Result.Ok("
+fn main() int {
+    println(\"Hello from AZ!\");
+    let x = 10;
+    let y = 20;
+    let sum = x + y;
+    println(\"Sum: \");
+    println(sum);
+    return 0;
+}
+");
+}
+
+// 辅助函数：获取命令行参数
+fn get_args() []string {
+    // 这里应该返回实际的命令行参数
+    // 为了演示，返回模拟参数
+    return ["az", "test.az"];
+}

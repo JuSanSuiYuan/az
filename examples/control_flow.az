@@ -1,0 +1,33 @@
+// AZ语言示例 - 控制流
+
+import std.io;
+
+fn main() int {
+    // if语句
+    let x = 10;
+    
+    if (x > 5) {
+        println("x大于5");
+    } else {
+        println("x小于等于5");
+    }
+    
+    // while循环
+    var i = 1;
+    println("计数到5:");
+    while (i <= 5) {
+        println(i);
+        i = i + 1;
+    }
+    
+    // 嵌套控制流
+    var n = 10;
+    if (n > 0) {
+        println("n是正数");
+        if (n > 5) {
+            println("n大于5");
+        }
+    }
+    
+    return 0;
+}

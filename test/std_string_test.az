@@ -1,0 +1,80 @@
+// std_string_test.az - 字符串标准库测试
+module test.std_string;
+
+import std.test;
+import std.string;
+
+fn test_basic_string_ops() void {
+    // 测试字符串长度
+    test.assert(string.len("") == 0, "空字符串长度应该为0");
+    test.assert(string.len("hello") == 5, "字符串'hello'长度应该为5");
+
+    // 测试字符串比较
+    test.assert(string.equals("hello", "hello"), "相同字符串应该相等");
+    test.assert(!string.equals("hello", "world"), "不同字符串不应该相等");
+
+    // 测试大小写转换
+    test.assert(string.equals(string.to_upper_str("hello"), "HELLO"), "to_upper_str应该将'hello'转换为'HELLO'");
+    test.assert(string.equals(string.to_lower_str("HELLO"), "hello"), "to_lower_str应该将'HELLO'转换为'hello'");
+}
+
+fn test_string_search() void {
+    // 测试子字符串查找
+    test.assert(string.find("hello world", "world") == 6, "find应该找到'world'在位置6");
+    test.assert(string.find("hello world", "xyz") == -1, "find应该返回-1表示未找到");
+
+    // 测试包含检查
+    test.assert(string.contains("hello world", "world"), "应该包含'world'");
+    test.assert(!string.contains("hello world", "xyz"), "不应该包含'xyz'");
+
+    // 测试前缀和后缀检查
+    test.assert(string.starts_with("hello world", "hello"), "应该以'hello'开头");
+    test.assert(string.ends_with("hello world", "world"), "应该以'world'结尾");
+    test.assert(!string.starts_with("hello world", "world"), "不应该以'world'开头");
+    test.assert(!string.ends_with("hello world", "hello"), "不应该以'hello'结尾");
+}
+
+fn test_string_manipulation() void {
+    // 测试字符串分割
+    let parts = string.split("a,b,c", ",");
+    test.assert(parts.len == 3, "分割后应该有3个部分");
+    test.assert(string.equals(parts[0], "a"), "第一部分应该是'a'");
+    test.assert(string.equals(parts[1], "b"), "第二部分应该是'b'");
+    test.assert(string.equals(parts[2], "c"), "第三部分应该是'c'");
+
+    // 测试字符串替换
+    let replaced = string.replace("hello world", "world", "AZ");
+    test.assert(string.equals(replaced, "hello AZ"), "替换后应该是'hello AZ'");
+
+    // 测试去除空白
+    test.assert(string.equals(string.trim("  hello  "), "hello"), "trim应该去除前后空白");
+    test.assert(string.equals(string.trim_left("  hello  "), "hello  "), "trim_left应该只去除左侧空白");
+    test.assert(string.equals(string.trim_right("  hello  "), "  hello"), "trim_right应该只去除右侧空白");
+
+    // 测试连接
+    let joined = string.join(["a", "b", "c"], ",");
+    test.assert(string.equals(joined, "a,b,c"), "join应该产生'a,b,c'");
+}
+
+fn test_string_conversion() void {
+    // 测试数字转换
+    test.assert(string.equals(string.from_int(42), "42"), "from_int(42)应该产生'42'");
+    test.assert(string.to_int("42") == 42, "to_int('42')应该产生42");
+    
+    test.assert(string.equals(string.from_float(3.14), "3.14"), "from_float(3.14)应该产生'3.14'");
+    test.assert(string.to_float("3.14") == 3.14, "to_float('3.14')应该产生3.14");
+
+    // 测试类型检查
+    test.assert(string.is_numeric("123"), "'123'应该是数字");
+    test.assert(string.is_alpha("abc"), "'abc'应该是字母");
+    test.assert(string.is_alphanumeric("abc123"), "'abc123'应该是字母数字");
+    test.assert(string.is_whitespace("   "), "'   '应该是空白");
+}
+
+fn main() void {
+    test_basic_string_ops();
+    test_string_search();
+    test_string_manipulation();
+    test_string_conversion();
+    test.summary();
+}

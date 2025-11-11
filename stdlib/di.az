@@ -1,0 +1,250 @@
+// std.di - 依赖注入模块
+// 提供服务注册和依赖注入功能
+module std.di;
+
+import std.collections.{HashMap, Vec};
+import std.error.{Result, Error};
+import std.string;
+import std.mem;
+
+// ============================================================================
+// 依赖注入相关类型定义
+// ============================================================================
+
+// 服务生命周期
+enum ServiceLifetime {
+    Transient,    // 每次请求都创建新实例
+    Scoped,       // 作用域内单例
+    Singleton,    // 全局单例
+}
+
+// 服务描述
+struct ServiceDescriptor {
+    service_type: string,        // 服务类型
+    implementation_type: string, // 实现类型
+    lifetime: ServiceLifetime,   // 生命周期
+    factory: *any,              // 工厂函数
+}
+
+// 服务提供者
+struct ServiceProvider {
+    services: HashMap<string, ServiceDescriptor>,
+    instances: HashMap<string, *any>, // 已创建的实例缓存
+}
+
+// 服务容器
+struct ServiceContainer {
+    providers: Vec<ServiceProvider>,
+    root_provider: ServiceProvider,
+}
+
+// ============================================================================
+// 服务描述符实现
+// ============================================================================
+
+// 创建服务描述符
+fn new_service_descriptor(
+    service_type: string,
+    implementation_type: string,
+    lifetime: ServiceLifetime,
+    factory: *any
+) ServiceDescriptor {
+    return ServiceDescriptor {
+        service_type: service_type,
+        implementation_type: implementation_type,
+        lifetime: lifetime,
+        factory: factory,
+    };
+}
+
+// ============================================================================
+// 服务提供者实现
+// ============================================================================
+
+// 创建服务提供者
+fn new_service_provider() ServiceProvider {
+    return ServiceProvider {
+        services: HashMap.new(),
+        instances: HashMap.new(),
+    };
+}
+
+// 注册服务
+fn (self: *ServiceProvider) register_service(descriptor: ServiceDescriptor) Result<void, Error> {
+    self.services.insert(descriptor.service_type, descriptor);
+    return Result.Ok(void);
+}
+
+// 获取服务
+fn (self: *ServiceProvider) get_service(service_type: string) Result<Option<*any>, Error> {
+    let descriptor = self.services.get(service_type);
+    if (descriptor.is_none()) {
+        return Result.Ok(Option.None);
+    }
+    
+    let desc = descriptor.unwrap();
+    
+    // 检查是否已有实例
+    match desc.lifetime {
+        ServiceLifetime.Singleton => {
+            let instance = self.instances.get(service_type);
+            if (instance.is_some()) {
+                return Result.Ok(Option.Some(instance.unwrap()));
+            }
+        },
+        _ => {
+            // Transient 和 Scoped 需要创建新实例
+        }
+    }
+    
+    // 创建新实例
+    let instance_result = self.create_instance(desc);
+    if (instance_result.is_err()) {
+        return Result.Err(instance_result.unwrap_err());
+    }
+    
+    let instance = instance_result.unwrap();
+    
+    // 缓存单例实例
+    if (desc.lifetime == ServiceLifetime.Singleton) {
+        self.instances.insert(service_type, instance);
+    }
+    
+    return Result.Ok(Option.Some(instance));
+}
+
+// 创建实例（简化实现）
+fn (self: *ServiceProvider) create_instance(descriptor: ServiceDescriptor) Result<*any, Error> {
+    // TODO: 实际实现需要调用工厂函数或反射创建实例
+    // 这里只是一个占位实现
+    
+    return Result.Ok(null);
+}
+
+// ============================================================================
+// 服务容器实现
+// ============================================================================
+
+// 创建服务容器
+fn new_service_container() ServiceContainer {
+    let root_provider = new_service_provider();
+    
+    return ServiceContainer {
+        providers: Vec.new(),
+        root_provider: root_provider,
+    };
+}
+
+// 添加服务提供者
+fn (self: *ServiceContainer) add_provider(provider: ServiceProvider) Result<void, Error> {
+    self.providers.push(provider);
+    return Result.Ok(void);
+}
+
+// 注册服务
+fn (self: *ServiceContainer) register_service(descriptor: ServiceDescriptor) Result<void, Error> {
+    return self.root_provider.register_service(descriptor);
+}
+
+// 获取服务
+fn (self: *ServiceContainer) get_service(service_type: string) Result<Option<*any>, Error> {
+    // 首先在根提供者中查找
+    let result = self.root_provider.get_service(service_type);
+    if (result.is_ok() && result.unwrap().is_some()) {
+        return result;
+    }
+    
+    // 在其他提供者中查找
+    for (self.providers) |provider| {
+        let result = provider.get_service(service_type);
+        if (result.is_ok() && result.unwrap().is_some()) {
+            return result;
+        }
+    }
+    
+    return Result.Ok(Option.None);
+}
+
+// 创建作用域
+fn (self: *ServiceContainer) create_scope() Result<ServiceProvider, Error> {
+    let scope_provider = new_service_provider();
+    return Result.Ok(scope_provider);
+}
+
+// ============================================================================
+// 服务注册器
+// ============================================================================
+
+// 服务注册器
+struct ServiceRegistry {
+    container: ServiceContainer,
+}
+
+// 创建服务注册器
+fn new_service_registry() ServiceRegistry {
+    return ServiceRegistry {
+        container: new_service_container(),
+    };
+}
+
+// 注册瞬态服务
+fn (self: *ServiceRegistry) register_transient(
+    service_type: string,
+    implementation_type: string,
+    factory: *any
+) Result<void, Error> {
+    let descriptor = new_service_descriptor(
+        service_type,
+        implementation_type,
+        ServiceLifetime.Transient,
+        factory
+    );
+    
+    return self.container.register_service(descriptor);
+}
+
+// 注册作用域服务
+fn (self: *ServiceRegistry) register_scoped(
+    service_type: string,
+    implementation_type: string,
+    factory: *any
+) Result<void, Error> {
+    let descriptor = new_service_descriptor(
+        service_type,
+        implementation_type,
+        ServiceLifetime.Scoped,
+        factory
+    );
+    
+    return self.container.register_service(descriptor);
+}
+
+// 注册单例服务
+fn (self: *ServiceRegistry) register_singleton(
+    service_type: string,
+    implementation_type: string,
+    factory: *any
+) Result<void, Error> {
+    let descriptor = new_service_descriptor(
+        service_type,
+        implementation_type,
+        ServiceLifetime.Singleton,
+        factory
+    );
+    
+    return self.container.register_service(descriptor);
+}
+
+// 构建服务提供者
+fn (self: *ServiceRegistry) build() ServiceProvider {
+    return self.container.root_provider;
+}
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+// 创建默认服务注册器
+fn default_service_registry() ServiceRegistry {
+    return new_service_registry();
+}

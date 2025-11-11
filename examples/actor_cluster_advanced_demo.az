@@ -1,0 +1,212 @@
+// 高级集群管理系统演示程序
+import std.actor.cluster.advanced.{AdvancedClusterManager, ClusterConfig, NodeId, ClusterNode, NodeStatus, default_cluster_config, new_advanced_cluster_manager, node_status_to_string, cluster_state_to_string, cluster_health_to_string};
+import std.actor.{ActorId, new_actor_id, actor_id_to_string};
+import std.time.{now, srand, rand, sleep_millis};
+import std.string;
+import std.io.{println};
+
+fn main() int {
+    // 初始化随机数种子
+    let current_time = now();
+    srand(current_time.seconds as int);
+    
+    println("=== 高级集群管理系统演示 ===");
+    
+    // 创建本地节点ID
+    let local_node_id = NodeId { id: "node-1" };
+    
+    // 创建集群配置
+    let config = default_cluster_config(local_node_id, "127.0.0.1", 8080);
+    
+    // 创建高级集群管理器
+    let mut cluster_manager = new_advanced_cluster_manager(config);
+    
+    println("已创建集群管理器");
+    println("  集群名称: " + cluster_manager.metadata.cluster_name);
+    println("  分区数量: " + string.from_int(cluster_manager.config.partition_count));
+    println("  复制因子: " + string.from_int(cluster_manager.config.replication_factor));
+    
+    println("\n启动集群:");
+    
+    // 启动集群
+    let start_result = cluster_manager.start();
+    if (start_result.is_err()) {
+        println("启动集群失败: " + start_result.unwrap_err().message);
+        return 1;
+    }
+    
+    println("集群启动成功");
+    println("  集群状态: " + cluster_state_to_string(cluster_manager.cluster_state));
+    println("  本地节点状态: " + node_status_to_string(cluster_manager.local_node.status));
+    
+    // 创建一些测试节点
+    println("\n添加测试节点:");
+    
+    let node2_id = NodeId { id: "node-2" };
+    let node2 = ClusterNode {
+        id: node2_id,
+        address: "127.0.0.2",
+        port: 8080,
+        status: NodeStatus.Active,
+        last_heartbeat: now(),
+        actor_count: 0,
+        cpu_usage: 0.25,
+        memory_usage: 512,
+        network_in: 100,
+        network_out: 150,
+        capabilities: Vec.new(),
+        tags: HashMap.new(),
+    };
+    
+    let node3_id = NodeId { id: "node-3" };
+    let node3 = ClusterNode {
+        id: node3_id,
+        address: "127.0.0.3",
+        port: 8080,
+        status: NodeStatus.Active,
+        last_heartbeat: now(),
+        actor_count: 0,
+        cpu_usage: 0.15,
+        memory_usage: 256,
+        network_in: 50,
+        network_out: 75,
+        capabilities: Vec.new(),
+        tags: HashMap.new(),
+    };
+    
+    // 添加节点到集群
+    let add_result1 = cluster_manager.add_member(node2);
+    if (add_result1.is_err()) {
+        println("添加节点2失败: " + add_result1.unwrap_err().message);
+    } else {
+        println("节点2添加成功");
+    }
+    
+    let add_result2 = cluster_manager.add_member(node3);
+    if (add_result2.is_err()) {
+        println("添加节点3失败: " + add_result2.unwrap_err().message);
+    } else {
+        println("节点3添加成功");
+    }
+    
+    // 显示集群成员
+    println("\n集群成员:");
+    println("  本地节点: " + cluster_manager.local_node.id.id + " (" + node_status_to_string(cluster_manager.local_node.status) + ")");
+    
+    for (cluster_manager.members.values()) |node| {
+        println("  节点: " + node.id.id + " (" + node_status_to_string(node.status) + ")");
+    }
+    
+    // 显示集群元数据
+    println("\n集群元数据:");
+    let metadata = cluster_manager.get_metadata();
+    println("  集群名称: " + metadata.cluster_name);
+    println("  版本: " + metadata.version);
+    println("  总节点数: " + string.from_int(metadata.total_nodes));
+    println("  总Actor数: " + string.from_int(metadata.total_actors));
+    println("  总分区数: " + string.from_int(metadata.total_partitions));
+    
+    // 创建测试Actor ID
+    println("\nActor分区分配:");
+    
+    let actor_ids = Vec.new();
+    actor_ids.push(new_actor_id("user-1"));
+    actor_ids.push(new_actor_id("user-2"));
+    actor_ids.push(new_actor_id("service-1"));
+    actor_ids.push(new_actor_id("service-2"));
+    actor_ids.push(new_actor_id("device-1"));
+    
+    for (actor_ids) |actor_id| {
+        let partition_id = cluster_manager.get_actor_partition(actor_id);
+        let location = cluster_manager.get_actor_location(actor_id);
+        println("  Actor " + actor_id.id + " -> 分区 " + string.from_int(partition_id) + " -> 节点 " + location.id);
+        
+        // 添加Actor到分区
+        let add_actor_result = cluster_manager.add_actor_to_partition(actor_id);
+        if (add_actor_result.is_err()) {
+            println("    添加Actor到分区失败: " + add_actor_result.unwrap_err().message);
+        }
+    }
+    
+    // 显示分区信息
+    println("\n分区信息:");
+    for (var i = 0; i < cluster_manager.partitions.len() && i < 5; i = i + 1) { // 只显示前5个分区
+        let partition = cluster_manager.partitions.get(i);
+        println("  分区 " + string.from_int(partition.id) + ":");
+        println("    主节点: " + partition.primary_node.id);
+        println("    Actor数量: " + string.from_int(partition.size));
+        println("    负载: " + string.from_float(partition.load));
+    }
+    
+    // 模拟节点故障
+    println("\n模拟节点故障:");
+    
+    let suspend_result = cluster_manager.update_node_status(node2_id, NodeStatus.Inactive);
+    if (suspend_result.is_err()) {
+        println("更新节点2状态失败: " + suspend_result.unwrap_err().message);
+    } else {
+        println("节点2状态已更新为不可达");
+    }
+    
+    // 再次检查Actor位置
+    println("\n节点故障后的Actor位置:");
+    for (actor_ids) |actor_id| {
+        let partition_id = cluster_manager.get_actor_partition(actor_id);
+        let location = cluster_manager.get_actor_location(actor_id);
+        println("  Actor " + actor_id.id + " -> 分区 " + string.from_int(partition_id) + " -> 节点 " + location.id);
+    }
+    
+    // 检查集群健康状态
+    println("\n集群健康状态:");
+    let health = cluster_manager.get_cluster_health();
+    println(cluster_health_to_string(health));
+    
+    // 显示节点状态
+    println("节点状态详情:");
+    for (health.node_statuses.entries()) |entry| {
+        println("  " + entry.0.id + ": " + entry.1);
+    }
+    
+    // 恢复节点
+    println("\n恢复节点:");
+    
+    let resume_result = cluster_manager.update_node_status(node2_id, NodeStatus.Active);
+    if (resume_result.is_err()) {
+        println("恢复节点2失败: " + resume_result.unwrap_err().message);
+    } else {
+        println("节点2已恢复为活跃状态");
+    }
+    
+    // 再次检查集群健康状态
+    println("\n恢复节点后的集群健康状态:");
+    let health_after = cluster_manager.get_cluster_health();
+    println(cluster_health_to_string(health_after));
+    
+    // 显示集群统计信息
+    println("\n集群统计信息:");
+    println("  总发送消息数: " + string.from_int(cluster_manager.stats.total_messages_sent));
+    println("  总接收消息数: " + string.from_int(cluster_manager.stats.total_messages_received));
+    println("  总发送心跳数: " + string.from_int(cluster_manager.stats.total_heartbeats_sent));
+    println("  总接收心跳数: " + string.from_int(cluster_manager.stats.total_heartbeats_received));
+    println("  总Gossip消息数: " + string.from_int(cluster_manager.stats.total_gossip_messages));
+    println("  连接失败数: " + string.from_int(cluster_manager.stats.failed_connections));
+    println("  连接成功数: " + string.from_int(cluster_manager.stats.successful_connections));
+    println("  节点加入尝试数: " + string.from_int(cluster_manager.stats.node_join_attempts));
+    println("  节点离开尝试数: " + string.from_int(cluster_manager.stats.node_leave_attempts));
+    
+    // 停止集群
+    println("\n停止集群:");
+    
+    let stop_result = cluster_manager.stop();
+    if (stop_result.is_err()) {
+        println("停止集群失败: " + stop_result.unwrap_err().message);
+    } else {
+        println("集群停止成功");
+    }
+    
+    println("  最终集群状态: " + cluster_state_to_string(cluster_manager.cluster_state));
+    
+    println("\n=== 演示完成 ===");
+    
+    return 0;
+}

@@ -1,0 +1,237 @@
+// 虚拟Actor系统演示程序
+import std.actor.virtual.{VirtualActorSystem, VirtualActorRef, default_virtual_actor_config, new_virtual_actor_system, new_virtual_actor_id};
+import std.actor.{Actor, ActorId, ActorRef, Message, Result, Error, actor_id_to_string};
+import std.actor.lifecycle.{ActorFactory};
+import std.time.{now, srand, rand, sleep_millis};
+import std.string;
+import std.io.{println};
+
+// 简单的计数器Actor
+struct CounterActor {
+    id: ActorId,
+    count: int,
+    name: string,
+}
+
+impl Actor for CounterActor {
+    fn handle_message(self: *Self, message: *Message) Result<void, Error> {
+        // 检查消息类型
+        if (message is IncrementMessage) {
+            let increment_msg = message as IncrementMessage;
+            self.count = self.count + increment_msg.value;
+            println(self.name + " 计数器增加 " + string.from_int(increment_msg.value) + "，当前值: " + string.from_int(self.count));
+        } else if (message is GetCountMessage) {
+            let get_count_msg = message as GetCountMessage;
+            println(self.name + " 当前计数: " + string.from_int(self.count));
+        }
+        
+        return Result.Ok(void);
+    }
+    
+    fn get_id(self: *Self) ActorId {
+        return self.id;
+    }
+    
+    fn on_activate(self: *Self) Result<void, Error> {
+        println(self.name + " 激活，初始计数: " + string.from_int(self.count));
+        return Result.Ok(void);
+    }
+    
+    fn on_deactivate(self: *Self) Result<void, Error> {
+        println(self.name + " 停用，最终计数: " + string.from_int(self.count));
+        return Result.Ok(void);
+    }
+}
+
+// Actor工厂实现
+struct CounterActorFactory {
+    base_name: string,
+}
+
+impl ActorFactory<CounterActor> for CounterActorFactory {
+    fn create_actor(self: *Self, actor_id: ActorId) Result<CounterActor, Error> {
+        let actor = CounterActor {
+            id: actor_id,
+            count: 0,
+            name: self.base_name + "-" + actor_id.id,
+        };
+        return Result.Ok(actor);
+    }
+}
+
+// 消息定义
+struct IncrementMessage {
+    value: int,
+}
+
+impl Message for IncrementMessage {}
+
+struct GetCountMessage {}
+
+impl Message for GetCountMessage {}
+
+fn main() int {
+    // 初始化随机数种子
+    let current_time = now();
+    srand(current_time.seconds as int);
+    
+    println("=== 虚拟Actor系统演示 ===");
+    
+    // 创建虚拟Actor系统
+    let config = default_virtual_actor_config();
+    let system_result = new_virtual_actor_system(config);
+    
+    if (system_result.is_err()) {
+        println("创建虚拟Actor系统失败: " + system_result.unwrap_err().message);
+        return 1;
+    }
+    
+    let mut virtual_system = system_result.unwrap();
+    
+    // 创建Actor工厂
+    let factory = CounterActorFactory { base_name: "Counter" };
+    
+    // 注册Actor类型
+    let register_result = virtual_system.register_actor_type("Counter", &factory);
+    if (register_result.is_err()) {
+        println("注册Actor类型失败: " + register_result.unwrap_err().message);
+        return 1;
+    }
+    
+    println("已注册Counter Actor类型");
+    
+    // 创建虚拟Actor ID
+    let counter_id1 = new_virtual_actor_id("Counter", "counter-1");
+    let counter_id2 = new_virtual_actor_id("Counter", "counter-2");
+    
+    println("\n创建虚拟Actor引用:");
+    
+    // 获取虚拟Actor引用
+    let counter_ref1 = virtual_system.get_actor<CounterActor>(counter_id1, "Counter");
+    let counter_ref2 = virtual_system.get_actor<CounterActor>(counter_id2, "Counter");
+    
+    println("  Counter1 ID: " + actor_id_to_string(counter_ref1.get_id()));
+    println("  Counter2 ID: " + actor_id_to_string(counter_ref2.get_id()));
+    
+    println("\n发送消息给虚拟Actor:");
+    
+    // 创建消息
+    let increment_msg1 = IncrementMessage { value: 5 };
+    let increment_msg2 = IncrementMessage { value: 10 };
+    let get_count_msg = GetCountMessage {};
+    
+    // 发送消息给Counter1
+    let send_result1 = counter_ref1.send(&increment_msg1);
+    if (send_result1.is_err()) {
+        println("发送消息给Counter1失败: " + send_result1.unwrap_err().message);
+    } else {
+        println("已发送增加5的消息给Counter1");
+    }
+    
+    let send_result2 = counter_ref1.send(&increment_msg2);
+    if (send_result2.is_err()) {
+        println("发送消息给Counter1失败: " + send_result2.unwrap_err().message);
+    } else {
+        println("已发送增加10的消息给Counter1");
+    }
+    
+    let send_result3 = counter_ref1.send(&get_count_msg);
+    if (send_result3.is_err()) {
+        println("发送消息给Counter1失败: " + send_result3.unwrap_err().message);
+    } else {
+        println("已发送获取计数消息给Counter1");
+    }
+    
+    // 发送消息给Counter2
+    let send_result4 = counter_ref2.send(&increment_msg1);
+    if (send_result4.is_err()) {
+        println("发送消息给Counter2失败: " + send_result4.unwrap_err().message);
+    } else {
+        println("已发送增加5的消息给Counter2");
+    }
+    
+    let send_result5 = counter_ref2.send(&get_count_msg);
+    if (send_result5.is_err()) {
+        println("发送消息给Counter2失败: " + send_result5.unwrap_err().message);
+    } else {
+        println("已发送获取计数消息给Counter2");
+    }
+    
+    // 再次发送消息给Counter1
+    let send_result6 = counter_ref1.send(&get_count_msg);
+    if (send_result6.is_err()) {
+        println("发送消息给Counter1失败: " + send_result6.unwrap_err().message);
+    } else {
+        println("再次发送获取计数消息给Counter1");
+    }
+    
+    println("\n虚拟Actor统计信息:");
+    let stats = virtual_system.get_stats();
+    println(virtual_actor_stats_to_string(stats));
+    
+    println("\n停用虚拟Actor:");
+    
+    // 停用Actor
+    let deactivate_result1 = virtual_system.deactivate_actor(counter_id1);
+    if (deactivate_result1.is_err()) {
+        println("停用Counter1失败: " + deactivate_result1.unwrap_err().message);
+    } else {
+        println("Counter1停用成功");
+    }
+    
+    let deactivate_result2 = virtual_system.deactivate_actor(counter_id2);
+    if (deactivate_result2.is_err()) {
+        println("停用Counter2失败: " + deactivate_result2.unwrap_err().message);
+    } else {
+        println("Counter2停用成功");
+    }
+    
+    println("\n终止虚拟Actor:");
+    
+    // 终止Actor
+    let terminate_result1 = virtual_system.terminate_actor(counter_id1);
+    if (terminate_result1.is_err()) {
+        println("终止Counter1失败: " + terminate_result1.unwrap_err().message);
+    } else {
+        println("Counter1终止成功");
+    }
+    
+    let terminate_result2 = virtual_system.terminate_actor(counter_id2);
+    if (terminate_result2.is_err()) {
+        println("终止Counter2失败: " + terminate_result2.unwrap_err().message);
+    } else {
+        println("Counter2终止成功");
+    }
+    
+    // 最终统计
+    println("\n终止后的虚拟Actor统计信息:");
+    let final_stats = virtual_system.get_stats();
+    println(virtual_actor_stats_to_string(final_stats));
+    
+    // 优雅关闭系统
+    println("\n优雅关闭虚拟Actor系统:");
+    let shutdown_result = virtual_system.graceful_shutdown();
+    if (shutdown_result.is_err()) {
+        println("优雅关闭失败: " + shutdown_result.unwrap_err().message);
+    } else {
+        println("系统已优雅关闭");
+    }
+    
+    println("\n=== 演示完成 ===");
+    
+    return 0;
+}
+
+// 虚拟Actor统计信息转字符串
+fn virtual_actor_stats_to_string(stats: VirtualActorStats) string {
+    let mut result = "虚拟Actor统计信息:\n";
+    result = string.concat(result, "  总虚拟Actor数: " + string.from_int(stats.total_virtual_actors) + "\n");
+    result = string.concat(result, "  活跃虚拟Actor数: " + string.from_int(stats.active_virtual_actors) + "\n");
+    result = string.concat(result, "  已创建虚拟Actor数: " + string.from_int(stats.created_virtual_actors) + "\n");
+    result = string.concat(result, "  已终止虚拟Actor数: " + string.from_int(stats.terminated_virtual_actors) + "\n");
+    result = string.concat(result, "  激活请求数: " + string.from_int(stats.activation_requests) + "\n");
+    result = string.concat(result, "  消息请求数: " + string.from_int(stats.message_requests) + "\n");
+    result = string.concat(result, "  激活缓存命中数: " + string.from_int(stats.activation_cache_hits) + "\n");
+    result = string.concat(result, "  激活缓存未命中数: " + string.from_int(stats.activation_cache_misses) + "\n");
+    return result;
+}

@@ -1,0 +1,6 @@
+fn main() int {
+    var x = 10;
+    x = 20;
+    x = x + 5;
+    return x;
+}

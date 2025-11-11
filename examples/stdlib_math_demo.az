@@ -1,0 +1,88 @@
+// 标准库数学函数示例
+
+fn main() int {
+    println("=== AZ标准库 - 数学函数示例 ===");
+    println("");
+    
+    // 1. 基础运算
+    println("1. 基础数学运算:");
+    let x = 16.0;
+    let sqrt_x = az_sqrt(x);
+    println("  sqrt(16) = " + az_float_to_string(sqrt_x));
+    
+    let pow_result = az_pow(2.0, 8.0);
+    println("  2^8 = " + az_float_to_string(pow_result));
+    
+    let abs_val = az_abs(-5.5);
+    println("  abs(-5.5) = " + az_float_to_string(abs_val));
+    
+    let abs_int = az_abs_int(-42);
+    println("  abs(-42) = " + az_int_to_string(abs_int));
+    
+    // 2. 三角函数
+    println("");
+    println("2. 三角函数:");
+    let pi = 3.14159265359;
+    let sin_val = az_sin(pi / 2.0);
+    println("  sin(π/2) = " + az_float_to_string(sin_val));
+    
+    let cos_val = az_cos(0.0);
+    println("  cos(0) = " + az_float_to_string(cos_val));
+    
+    let tan_val = az_tan(pi / 4.0);
+    println("  tan(π/4) = " + az_float_to_string(tan_val));
+    
+    // 3. 对数和指数
+    println("");
+    println("3. 对数和指数:");
+    let e = 2.71828182846;
+    let exp_val = az_exp(1.0);
+    println("  exp(1) = " + az_float_to_string(exp_val));
+    
+    let log_val = az_log(e);
+    println("  ln(e) = " + az_float_to_string(log_val));
+    
+    let log10_val = az_log10(100.0);
+    println("  log10(100) = " + az_float_to_string(log10_val));
+    
+    let log2_val = az_log2(8.0);
+    println("  log2(8) = " + az_float_to_string(log2_val));
+    
+    // 4. 取整函数
+    println("");
+    println("4. 取整函数:");
+    let num = 3.7;
+    println("  原数: " + az_float_to_string(num));
+    println("  floor(3.7) = " + az_float_to_string(az_floor(num)));
+    println("  ceil(3.7) = " + az_float_to_string(az_ceil(num)));
+    println("  round(3.7) = " + az_float_to_string(az_round(num)));
+    println("  trunc(3.7) = " + az_float_to_string(az_trunc(num)));
+    
+    // 5. 最大最小值
+    println("");
+    println("5. 最大最小值:");
+    let a = 10;
+    let b = 20;
+    println("  max(10, 20) = " + az_int_to_string(az_max(a, b)));
+    println("  min(10, 20) = " + az_int_to_string(az_min(a, b)));
+    
+    let fa = 3.14;
+    let fb = 2.71;
+    println("  max(3.14, 2.71) = " + az_float_to_string(az_max_float(fa, fb)));
+    println("  min(3.14, 2.71) = " + az_float_to_string(az_min_float(fa, fb)));
+    
+    // 6. 限制范围
+    println("");
+    println("6. 限制范围:");
+    let value = 15;
+    let clamped = az_clamp(value, 0, 10);
+    println("  clamp(15, 0, 10) = " + az_int_to_string(clamped));
+    
+    let fvalue = 5.5;
+    let fclamped = az_clamp_float(fvalue, 0.0, 10.0);
+    println("  clamp(5.5, 0.0, 10.0) = " + az_float_to_string(fclamped));
+    
+    println("");
+    println("=== 示例完成 ===");
+    return 0;
+}

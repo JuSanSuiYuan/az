@@ -1,0 +1,94 @@
+// 标准库文件系统操作示例
+
+fn main() int {
+    println("=== AZ标准库 - 文件系统示例 ===");
+    println("");
+    
+    // 1. 写入文件
+    println("1. 写入文件:");
+    let content = "Hello, AZ Language!\nThis is a test file.\n";
+    let result = az_write_file("test_output.txt", content);
+    if (result == 0) {
+        println("  ✓ 文件写入成功: test_output.txt");
+    } else {
+        println("  ✗ 文件写入失败");
+        return 1;
+    }
+    
+    // 2. 读取文件
+    println("");
+    println("2. 读取文件:");
+    if (az_file_exists("test_output.txt")) {
+        println("  ✓ 文件存在");
+        let read_content = az_read_file("test_output.txt");
+        if (read_content != null) {
+            println("  文件内容:");
+            println("  " + read_content);
+        }
+    } else {
+        println("  ✗ 文件不存在");
+    }
+    
+    // 3. 追加到文件
+    println("");
+    println("3. 追加到文件:");
+    let append_content = "Appended line 1\nAppended line 2\n";
+    let append_result = az_append_file("test_output.txt", append_content);
+    if (append_result == 0) {
+        println("  ✓ 内容追加成功");
+    }
+    
+    // 4. 获取文件信息
+    println("");
+    println("4. 文件信息:");
+    let size = az_file_size("test_output.txt");
+    if (size >= 0) {
+        println("  文件大小: " + az_int_to_string(size) + " 字节");
+    }
+    
+    if (az_is_file("test_output.txt")) {
+        println("  ✓ 这是一个文件");
+    }
+    
+    // 5. 文件复制（通过读写实现）
+    println("");
+    println("5. 复制文件:");
+    let copy_content = az_read_file("test_output.txt");
+    if (copy_content != null) {
+        let copy_result = az_write_file("test_copy.txt", copy_content);
+        if (copy_result == 0) {
+            println("  ✓ 文件复制成功: test_copy.txt");
+        }
+    }
+    
+    // 6. 文件重命名
+    println("");
+    println("6. 重命名文件:");
+    let rename_result = az_rename_file("test_copy.txt", "test_renamed.txt");
+    if (rename_result == 0) {
+        println("  ✓ 文件重命名成功: test_renamed.txt");
+    }
+    
+    // 7. 创建目录
+    println("");
+    println("7. 目录操作:");
+    let mkdir_result = az_create_dir("test_dir");
+    if (mkdir_result == 0) {
+        println("  ✓ 目录创建成功: test_dir");
+    } else {
+        println("  ℹ 目录可能已存在");
+    }
+    
+    // 8. 清理（可选）
+    println("");
+    println("8. 清理测试文件:");
+    println("  保留以下文件供检查:");
+    println("  - test_output.txt");
+    println("  - test_renamed.txt");
+    println("  - test_dir/");
+    println("  (可以手动删除这些文件)");
+    
+    println("");
+    println("=== 示例完成 ===");
+    return 0;
+}

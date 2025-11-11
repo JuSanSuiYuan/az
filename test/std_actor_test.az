@@ -1,0 +1,88 @@
+// std_actor_test.az - Actor标准库测试
+module test.std_actor;
+
+import std.test;
+import std.actor;
+
+// 简单的测试Actor实现
+struct TestActor {
+    id: actor.ActorId,
+    counter: int
+}
+
+impl TestActor {
+    fn new(id: actor.ActorId) TestActor {
+        return TestActor {
+            id: id,
+            counter: 0
+        };
+    }
+}
+
+impl actor.Actor for TestActor {
+    fn handle_message(self: *Self, message: *actor.Message) Result<void, Error> {
+        // 简化的消息处理
+        self.counter = self.counter + 1;
+        return Result.Ok(void);
+    }
+    
+    fn get_id(self: *Self) actor.ActorId {
+        return self.id;
+    }
+    
+    fn on_activate(self: *Self) Result<void, Error> {
+        self.counter = 0;
+        return Result.Ok(void);
+    }
+    
+    fn on_deactivate(self: *Self) Result<void, Error> {
+        self.counter = 0;
+        return Result.Ok(void);
+    }
+}
+
+fn test_actor_system() void {
+    // 测试创建Actor系统
+    let system = actor.create_system();
+    test.assert(system.is_running == false, "新创建的系统默认应该是停止状态");
+
+    // 测试启动系统
+    let start_result = actor.start(&system);
+    test.assert(start_result.is_ok(), "应该能成功启动Actor系统");
+    // 注意：由于start_system是简化实现，这里可能需要调整测试逻辑
+}
+
+fn test_actor_id() void {
+    // 测试创建不同类型的Actor ID
+    let string_id = actor.new_actor_id("test_actor");
+    test.assert(string_id.id_type == actor.ActorIdType.String, "应该创建字符串类型的Actor ID");
+    test.assert(string_id.id == "test_actor", "ID值应该是'test_actor'");
+
+    let numeric_id = actor.new_numeric_actor_id(123);
+    test.assert(numeric_id.id_type == actor.ActorIdType.Numeric, "应该创建数值类型的Actor ID");
+    test.assert(numeric_id.id == "123", "ID值应该是'123'");
+
+    let random_id = actor.random_actor_id();
+    test.assert(random_id.id.len() > 0, "随机ID不应该为空");
+
+    let uuid_id = actor.uuid_actor_id();
+    test.assert(uuid_id.id_type == actor.ActorIdType.UUID, "应该创建UUID类型的Actor ID");
+    test.assert(uuid_id.id.len() > 0, "UUID ID不应该为空");
+}
+
+fn test_actor_lifecycle() void {
+    // 测试Actor生命周期管理
+    let system = actor.create_system();
+    
+    // 测试创建Actor引用
+    let actor_id = actor.new_actor_id("test_actor");
+    let actor_ref = actor.actor_of<TestActor>(&system, actor_id);
+    test.assert(actor_ref.id.id == "test_actor", "Actor引用的ID应该匹配");
+}
+
+fn main() void {
+    test_actor_system();
+    test_actor_id();
+    test_actor_lifecycle();
+    test.summary();
+}

@@ -1,0 +1,58 @@
+// 简单的AZ语言特性演示程序
+
+import std.io;
+
+// 函数定义
+fn add(a: int, b: int) int {
+    return a + b;
+}
+
+// 结构体定义
+struct Point {
+    x: int,
+    y: int,
+}
+
+// 使用match语句
+fn describe_point(p: Point) string {
+    match p.x {
+        0 => {
+            match p.y {
+                0 => return "原点",
+                _ => return "Y轴上的点"
+            }
+        },
+        _ => {
+            match p.y {
+                0 => return "X轴上的点",
+                _ => return "普通点"
+            }
+        }
+    }
+}
+
+fn main() int {
+    println("=== AZ语言简单演示 ===");
+    
+    // 基本运算
+    let sum = add(3, 5);
+    println("3 + 5 = {}", sum);
+    
+    // 结构体使用
+    let point = Point{x: 3, y: 4};
+    println("点坐标: ({}, {})", point.x, point.y);
+    
+    // match语句使用
+    let description = describe_point(point);
+    println("点的描述: {}", description);
+    
+    // 控制流
+    var i = 1;
+    println("计数到3:");
+    while (i <= 3) {
+        println("  {}", i);
+        i = i + 1;
+    }
+    
+    return 0;
+}

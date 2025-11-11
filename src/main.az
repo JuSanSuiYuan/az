@@ -1,0 +1,29 @@
+// AZ语言示例程序
+// 展示AZ语言的基本语法，结合C3和Zig的特性
+
+import std.io;
+
+fn main() int {
+    // 类似C语言的语法
+    var name = "AZ";
+    io.println("Hello, " + name + "!");
+    
+    // 展示编译时执行能力（来自Zig）
+    const compile_time_value = comptime {
+        var result = 0;
+        for (var i = 1; i <= 10; i++) {
+            result += i;
+        }
+        result
+    };
+    
+    io.println("Compile-time calculated value: " + compile_time_value);
+    
+    // 展示安全的内存管理
+    var numbers = [1, 2, 3, 4, 5];
+    for (numbers) |num| {
+        io.println("Number: " + num);
+    }
+    
+    return 0;
+}

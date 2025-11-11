@@ -1,0 +1,188 @@
+// std.mem - 内存管理模块
+module std.mem;
+
+// ============================================================================
+// 基础内存操作
+// ============================================================================
+
+// 分配内存
+extern fn az_malloc(size: int) ptr;
+
+// 释放内存
+extern fn az_free(ptr: ptr) void;
+
+// 重新分配内存
+extern fn az_realloc(ptr: ptr, size: int) ptr;
+
+// ============================================================================
+// 内存操作函数
+// ============================================================================
+
+// 复制内存
+fn copy(dest: ptr, src: ptr, size: int) void {
+    let d = cast(dest, *byte);
+    let s = cast(src, *byte);
+    
+    // 使用字节逐个复制
+    for (var i = 0; i < size; i = i + 1) {
+        d[i] = s[i];
+    }
+}
+
+// 移动内存（处理重叠内存区域）
+fn move(dest: ptr, src: ptr, size: int) void {
+    let d = cast(dest, *byte);
+    let s = cast(src, *byte);
+    
+    // 如果源地址小于目标地址，从后往前复制以避免重叠问题
+    if (src < dest) {
+        var i = size - 1;
+        while (i >= 0) {
+            d[i] = s[i];
+            i = i - 1;
+        }
+    } else {
+        // 否则从前往后复制
+        for (var i = 0; i < size; i = i + 1) {
+            d[i] = s[i];
+        }
+    }
+}
+
+// 设置内存
+fn set(ptr: ptr, value: int, size: int) void {
+    let p = cast(ptr, *byte);
+    let val = cast(value, byte);
+    
+    for (var i = 0; i < size; i = i + 1) {
+        p[i] = val;
+    }
+}
+
+// 比较内存
+fn compare(a: ptr, b: ptr, size: int) int {
+    let pa = cast(a, *byte);
+    let pb = cast(b, *byte);
+    
+    for (var i = 0; i < size; i = i + 1) {
+        if (pa[i] < pb[i]) {
+            return -1;
+        }
+        if (pa[i] > pb[i]) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// 清零内存
+fn zero(ptr: ptr, size: int) void {
+    set(ptr, 0, size);
+}
+
+// ============================================================================
+// 显式内存管理工具
+// ============================================================================
+
+// 分配器接口
+struct Allocator {
+    alloc_fn: fn(size: int) ptr,
+    free_fn: fn(ptr: ptr) void,
+    realloc_fn: fn(ptr: ptr, size: int) ptr,
+}
+
+// 默认分配器
+fn default_allocator() Allocator {
+    return Allocator{
+        alloc_fn: az_malloc,
+        free_fn: az_free,
+        realloc_fn: az_realloc,
+    };
+}
+
+// 使用分配器分配内存
+fn alloc(allocator: Allocator, size: int) ptr {
+    return allocator.alloc_fn(size);
+}
+
+// 使用分配器释放内存
+fn dealloc(allocator: Allocator, ptr: ptr) void {
+    allocator.free_fn(ptr);
+}
+
+// 使用分配器重新分配内存
+fn realloc(allocator: Allocator, ptr: ptr, size: int) ptr {
+    return allocator.realloc_fn(ptr, size);
+}
+
+// ============================================================================
+// 智能指针（显式管理）
+// ============================================================================
+
+struct Box<T> {
+    ptr: ptr,
+    allocator: Allocator,
+}
+
+// 创建Box
+fn box_new<T>(allocator: Allocator, value: T) Box<T> {
+    let ptr = allocator.alloc_fn(sizeof(T));
+    // 将value复制到分配的内存中
+    copy(ptr, addr(value), sizeof(T));
+    return Box<T>{ ptr: ptr, allocator: allocator };
+}
+
+// 解引用Box
+fn box_deref<T>(self: Box<T>) T {
+    // 从ptr读取value
+    let value_ptr = cast(self.ptr, *T);
+    return *value_ptr;
+}
+
+// 释放Box
+fn box_free<T>(self: Box<T>) void {
+    self.allocator.free_fn(self.ptr);
+}
+
+// ============================================================================
+// 内存对齐
+// ============================================================================
+
+// 对齐到指定字节
+fn align_to(size: int, alignment: int) int {
+    return (size + alignment - 1) & ~(alignment - 1);
+}
+
+// 检查是否对齐
+fn is_aligned(ptr: ptr, alignment: int) bool {
+    let addr = cast(ptr, int);
+    return (addr & (alignment - 1)) == 0;
+}
+
+// ============================================================================
+// 内存模式
+// ============================================================================
+
+// 填充模式
+struct FillPattern {
+    pattern: []byte,
+}
+
+// 创建填充模式
+fn fill_pattern(bytes: []byte) FillPattern {
+    return FillPattern{ pattern: bytes };
+}
+
+// 使用模式填充内存
+fn fill_with_pattern(ptr: ptr, size: int, pattern: FillPattern) void {
+    let p = cast(ptr, *byte);
+    let pattern_len = len(pattern.pattern);
+    
+    if (pattern_len == 0) {
+        return;
+    }
+    
+    for (var i = 0; i < size; i = i + 1) {
+        p[i] = pattern.pattern[i % pattern_len];
+    }
+}

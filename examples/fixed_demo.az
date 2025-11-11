@@ -1,0 +1,61 @@
+// Basic AZ Language Demo
+
+import std.io;
+
+fn add(a: int, b: int) int {
+    return a + b;
+}
+
+struct Point {
+    x: int,
+    y: int,
+}
+
+fn new_point(x: int, y: int) Point {
+    return Point{x: x, y: y};
+}
+
+fn point_distance(p: Point) int {
+    return p.x * p.x + p.y * p.y;
+}
+
+fn main() int {
+    println("=== Basic AZ Language Demo ===");
+    println("");
+    
+    // Basic arithmetic
+    let sum = add(3, 5);
+    println("3 + 5 = ");
+    println(sum);
+    
+    // Struct usage
+    let point = new_point(3, 4);
+    println("Point coordinates: (");
+    println(point.x);
+    print(", ");
+    println(point.y);
+    println(")");
+    
+    // Method call
+    let distance = point_distance(point);
+    println("Distance squared to origin: ");
+    println(distance);
+    
+    // Control flow
+    var i = 1;
+    println("Counting to 3:");
+    while (i <= 3) {
+        print("  ");
+        println(i);
+        i = i + 1;
+    }
+    
+    // Conditional statement
+    if (distance > 20) {
+        println("This is a point far from the origin");
+    } else {
+        println("This is a point close to the origin");
+    }
+    
+    return 0;
+}

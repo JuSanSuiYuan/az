@@ -1,0 +1,236 @@
+// Actor错误处理和恢复系统演示程序
+import std.actor.error.{ActorErrorHandler, ActorErrorHandlingMixin, ActorErrorType, ErrorHandlingStrategy, RecoveryStrategy, ErrorSeverity, CircuitBreakerState, default_error_handling_config, new_actor_error_handler, new_actor_error_info, actor_error_type_to_string, error_handling_strategy_to_string, recovery_strategy_to_string, error_stats_to_string, error_severity_to_string};
+import std.actor.{Actor, ActorId, new_actor_id, actor_id_to_string, Result, Error};
+import std.time.{now, srand, rand, sleep_millis};
+import std.string;
+import std.io.{println};
+
+// 简单的Actor实现
+struct SimpleActor {
+    id: ActorId,
+    name: string,
+    error_count: int,
+}
+
+impl Actor for SimpleActor {
+    fn handle_message(self: *Self, message: *Message) Result<void, Error> {
+        self.error_count = self.error_count + 1;
+        
+        // 模拟随机错误
+        if (self.error_count % 3 == 0) {
+            return Result.Err(Error.new("模拟消息处理错误"));
+        }
+        
+        println(self.name + " 处理消息成功");
+        return Result.Ok(void);
+    }
+    
+    fn get_id(self: *Self) ActorId {
+        return self.id;
+    }
+    
+    fn on_activate(self: *Self) Result<void, Error> {
+        println(self.name + " 激活");
+        return Result.Ok(void);
+    }
+    
+    fn on_deactivate(self: *Self) Result<void, Error> {
+        println(self.name + " 停用");
+        return Result.Ok(void);
+    }
+}
+
+fn main() int {
+    // 初始化随机数种子
+    let current_time = now();
+    srand(current_time.seconds as int);
+    
+    println("=== Actor错误处理和恢复系统演示 ===");
+    
+    // 创建错误处理配置
+    let config = default_error_handling_config();
+    
+    println("错误处理配置:");
+    println("  默认策略: " + error_handling_strategy_to_string(config.default_strategy));
+    println("  最大重试次数: " + string.from_int(config.max_retry_attempts));
+    println("  重试延迟: " + string.from_int(config.retry_delay_ms) + " 毫秒");
+    println("  退避乘数: " + string.from_float(config.backoff_multiplier));
+    println("  启用熔断器: " + string.from_bool(config.enable_circuit_breaker));
+    println("  熔断器阈值: " + string.from_int(config.circuit_breaker_threshold));
+    
+    // 创建Actor错误处理器
+    let mut error_handler = new_actor_error_handler(config);
+    
+    println("\n已创建错误处理器");
+    
+    // 创建Actor实例
+    let actor_id = new_actor_id("simple-actor-1");
+    let mut actor = SimpleActor {
+        id: actor_id,
+        name: "SimpleActor",
+        error_count: 0,
+    };
+    
+    println("\n创建Actor:");
+    println("  Actor ID: " + actor_id.id);
+    
+    // 创建Actor错误处理混入
+    let mut actor_mixin = new_actor_error_handling_mixin(&actor, &error_handler);
+    
+    // 模拟处理消息并处理错误
+    println("\n模拟处理消息:");
+    
+    for (var i = 1; i <= 10; i = i + 1) {
+        println("\n第 " + string.from_int(i) + " 次消息处理:");
+        
+        // 尝试处理消息
+        let message_result = actor.handle_message(null);
+        
+        if (message_result.is_err()) {
+            let error = message_result.unwrap_err();
+            println("  消息处理失败: " + error.message);
+            
+            // 创建错误信息
+            let error_info = new_actor_error_info(
+                ActorErrorType.MessageHandlingFailed,
+                error.message,
+                error.code,
+                actor_id
+            );
+            
+            // 处理错误
+            let handle_result = error_handler.handle_actor_error(error_info, config.default_strategy);
+            
+            if (handle_result.is_err()) {
+                println("  错误处理失败: " + handle_result.unwrap_err().message);
+                error_handler.record_failure();
+            } else {
+                let strategy = handle_result.unwrap();
+                println("  错误处理策略: " + error_handling_strategy_to_string(strategy));
+                error_handler.record_failure();
+            }
+        } else {
+            println("  消息处理成功");
+            actor_mixin.record_success();
+        }
+    }
+    
+    // 显示错误统计信息
+    println("\n错误统计信息:");
+    let stats = error_handler.get_error_stats();
+    println(error_stats_to_string(stats));
+    
+    // 测试熔断器
+    println("\n测试熔断器:");
+    
+    // 模拟连续失败
+    println("模拟连续失败以触发熔断器:");
+    for (var i = 1; i <= 6; i = i + 1) {
+        let error_info = new_actor_error_info(
+            ActorErrorType.Unknown,
+            "模拟错误 " + string.from_int(i),
+            i,
+            actor_id
+        );
+        
+        error_handler.log_error(error_info);
+        error_handler.record_failure();
+        
+        let circuit_result = error_handler.check_circuit_breaker();
+        if (circuit_result.is_ok()) {
+            let state = circuit_result.unwrap();
+            println("  熔断器状态: " + circuit_breaker_state_to_string(state));
+            
+            if (state == CircuitBreakerState.Open) {
+                println("  熔断器已打开！");
+                break;
+            }
+        }
+    }
+    
+    // 等待熔断器超时
+    println("\n等待熔断器超时（1秒）...");
+    sleep_millis(1000);
+    
+    // 检查熔断器状态
+    let circuit_result = error_handler.check_circuit_breaker();
+    if (circuit_result.is_ok()) {
+        let state = circuit_result.unwrap();
+        println("  熔断器状态: " + circuit_breaker_state_to_string(state));
+        
+        if (state == CircuitBreakerState.HalfOpen) {
+            println("  熔断器处于半开状态");
+            
+            // 模拟成功请求
+            println("  模拟成功请求...");
+            actor_mixin.record_success();
+            
+            // 再次检查状态
+            let circuit_result2 = error_handler.check_circuit_breaker();
+            if (circuit_result2.is_ok()) {
+                let state2 = circuit_result2.unwrap();
+                println("  熔断器状态: " + circuit_breaker_state_to_string(state2));
+            }
+        }
+    }
+    
+    // 测试恢复策略
+    println("\n测试恢复策略:");
+    
+    let recovery_strategies = Vec.new();
+    recovery_strategies.push(RecoveryStrategy.None);
+    recovery_strategies.push(RecoveryStrategy.RestoreFromSnapshot);
+    recovery_strategies.push(RecoveryStrategy.ReplayEvents);
+    recovery_strategies.push(RecoveryStrategy.RecreateActor);
+    recovery_strategies.push(RecoveryStrategy.FailoverToReplica);
+    recovery_strategies.push(RecoveryStrategy.ManualRecovery);
+    
+    for (recovery_strategies) |strategy| {
+        println("\n尝试恢复策略: " + recovery_strategy_to_string(strategy));
+        
+        let recover_result = actor_mixin.recover(strategy);
+        if (recover_result.is_err()) {
+            println("  恢复失败: " + recover_result.unwrap_err().message);
+        } else {
+            println("  恢复成功");
+        }
+    }
+    
+    // 显示最终错误统计信息
+    println("\n最终错误统计信息:");
+    let final_stats = error_handler.get_error_stats();
+    println(error_stats_to_string(final_stats));
+    
+    // 清理旧错误日志
+    println("\n清理旧错误日志:");
+    let cleaned_count = error_handler.cleanup_old_errors(1); // 清理1小时前的错误
+    println("  清理了 " + string.from_int(cleaned_count) + " 个旧错误日志");
+    
+    println("\n=== 演示完成 ===");
+    
+    return 0;
+}
+
+// 布尔值转字符串
+fn string.from_bool(b: bool) string {
+    if (b) {
+        return "true";
+    } else {
+        return "false";
+    }
+}
+
+// 熔断器状态转字符串
+fn circuit_breaker_state_to_string(state: CircuitBreakerState) string {
+    match state {
+        CircuitBreakerState.Closed => {
+            return "Closed";
+        },
+        CircuitBreakerState.Open => {
+            return "Open";
+        },
+        CircuitBreakerState.HalfOpen => {
+            return "HalfOpen";
+        }
+    }
+}

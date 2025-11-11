@@ -1,0 +1,279 @@
+// AZ编译器语义分析器
+
+import compiler.ast;
+import compiler.error;
+
+// 符号表
+struct Symbol {
+    name: string,
+    type_name: string,
+    is_mutable: bool,
+    is_function: bool
+}
+
+struct SymbolTable {
+    symbols: map<string, Symbol>,
+    parent: *SymbolTable
+}
+
+struct SemanticAnalyzer {
+    current_scope: *SymbolTable,
+    filename: string,
+    errors: []CompileError
+}
+
+// 创建语义分析器
+fn new_semantic_analyzer(filename: string) SemanticAnalyzer {
+    let global_scope = new SymbolTable {
+        symbols: {},
+        parent: null
+    };
+    
+    return SemanticAnalyzer {
+        current_scope: global_scope,
+        filename: filename,
+        errors: []
+    };
+}
+
+// 语义分析主函数
+fn analyze(analyzer: *SemanticAnalyzer, program: *Program) Result<void> {
+    // 第一遍：收集所有函数声明
+    for (program.statements) |stmt| {
+        if (stmt.kind == StmtKind.FuncDecl) {
+            let result = declare_function(analyzer, stmt);
+            if (result is Err) {
+                analyzer.errors.append(result.error);
+            }
+        }
+    }
+    
+    // 第二遍：分析所有语句
+    for (program.statements) |stmt| {
+        let result = analyze_statement(analyzer, stmt);
+        if (result is Err) {
+            analyzer.errors.append(result.error);
+        }
+    }
+    
+    if (analyzer.errors.length > 0) {
+        return Result.Err(analyzer.errors[0]);
+    }
+    
+    return Result.Ok(void);
+}
+
+// 声明函数
+fn declare_function(analyzer: *SemanticAnalyzer, stmt: *Stmt) Result<void> {
+    let symbol = Symbol {
+        name: stmt.name,
+        type_name: stmt.return_type,
+        is_mutable: false,
+        is_function: true
+    };
+    
+    if (analyzer.current_scope.symbols.contains(stmt.name)) {
+        return Result.Err(make_error(
+            ErrorKind.SemanticError,
+            "函数 '" + stmt.name + "' 已经声明",
+            0, 0,
+            analyzer.filename
+        ));
+    }
+    
+    analyzer.current_scope.symbols[stmt.name] = symbol;
+    return Result.Ok(void);
+}
+
+// 分析语句
+fn analyze_statement(analyzer: *SemanticAnalyzer, stmt: *Stmt) Result<void> {
+    match stmt.kind {
+        StmtKind.VarDecl => return analyze_var_decl(analyzer, stmt),
+        StmtKind.FuncDecl => return analyze_func_decl(analyzer, stmt),
+        StmtKind.Return => return analyze_return(analyzer, stmt),
+        StmtKind.Expression => return analyze_expr_stmt(analyzer, stmt),
+        StmtKind.Block => return analyze_block(analyzer, stmt),
+        _ => return Result.Ok(void)
+    }
+}
+
+// 分析变量声明
+fn analyze_var_decl(analyzer: *SemanticAnalyzer, stmt: *Stmt) Result<void> {
+    // 检查变量是否已声明
+    if (analyzer.current_scope.symbols.contains(stmt.name)) {
+        return Result.Err(make_error(
+            ErrorKind.SemanticError,
+            "变量 '" + stmt.name + "' 已经声明",
+            0, 0,
+            analyzer.filename
+        ));
+    }
+    
+    // 分析初始化表达式
+    if (stmt.initializer != null) {
+        let result = analyze_expression(analyzer, stmt.initializer);
+        if (result is Err) return result;
+    }
+    
+    // 添加到符号表
+    let symbol = Symbol {
+        name: stmt.name,
+        type_name: stmt.type_name,
+        is_mutable: stmt.is_mutable,
+        is_function: false
+    };
+    analyzer.current_scope.symbols[stmt.name] = symbol;
+    
+    return Result.Ok(void);
+}
+
+// 分析函数声明
+fn analyze_func_decl(analyzer: *SemanticAnalyzer, stmt: *Stmt) Result<void> {
+    // 创建新作用域
+    let func_scope = new SymbolTable {
+        symbols: {},
+        parent: analyzer.current_scope
+    };
+    
+    let old_scope = analyzer.current_scope;
+    analyzer.current_scope = func_scope;
+    
+    // 添加参数到作用域
+    for (stmt.params) |param| {
+        let symbol = Symbol {
+            name: param.name,
+            type_name: param.type_name,
+            is_mutable: false,
+            is_function: false
+        };
+        func_scope.symbols[param.name] = symbol;
+    }
+    
+    // 分析函数体
+    let result = analyze_statement(analyzer, stmt.body);
+    
+    // 恢复作用域
+    analyzer.current_scope = old_scope;
+    
+    return result;
+}
+
+// 分析return语句
+fn analyze_return(analyzer: *SemanticAnalyzer, stmt: *Stmt) Result<void> {
+    if (stmt.expr != null) {
+        return analyze_expression(analyzer, stmt.expr);
+    }
+    return Result.Ok(void);
+}
+
+// 分析表达式语句
+fn analyze_expr_stmt(analyzer: *SemanticAnalyzer, stmt: *Stmt) Result<void> {
+    return analyze_expression(analyzer, stmt.expr);
+}
+
+// 分析代码块
+fn analyze_block(analyzer: *SemanticAnalyzer, stmt: *Stmt) Result<void> {
+    // 创建新作用域
+    let block_scope = new SymbolTable {
+        symbols: {},
+        parent: analyzer.current_scope
+    };
+    
+    let old_scope = analyzer.current_scope;
+    analyzer.current_scope = block_scope;
+    
+    // 分析所有语句
+    for (stmt.statements) |s| {
+        let result = analyze_statement(analyzer, s);
+        if (result is Err) {
+            analyzer.current_scope = old_scope;
+            return result;
+        }
+    }
+    
+    // 恢复作用域
+    analyzer.current_scope = old_scope;
+    return Result.Ok(void);
+}
+
+// 分析表达式
+fn analyze_expression(analyzer: *SemanticAnalyzer, expr: *Expr) Result<string> {
+    match expr.kind {
+        ExprKind.IntLiteral => return Result.Ok("int"),
+        ExprKind.FloatLiteral => return Result.Ok("float"),
+        ExprKind.StringLiteral => return Result.Ok("string"),
+        ExprKind.Identifier => return analyze_identifier(analyzer, expr),
+        ExprKind.Binary => return analyze_binary(analyzer, expr),
+        ExprKind.Unary => return analyze_unary(analyzer, expr),
+        ExprKind.Call => return analyze_call(analyzer, expr),
+        _ => return Result.Ok("unknown")
+    }
+}
+
+// 分析标识符
+fn analyze_identifier(analyzer: *SemanticAnalyzer, expr: *Expr) Result<string> {
+    let symbol = lookup_symbol(analyzer.current_scope, expr.name);
+    if (symbol == null) {
+        return Result.Err(make_error(
+            ErrorKind.SemanticError,
+            "未定义的标识符: " + expr.name,
+            0, 0,
+            analyzer.filename
+        ));
+    }
+    return Result.Ok(symbol.type_name);
+}
+
+// 分析二元运算
+fn analyze_binary(analyzer: *SemanticAnalyzer, expr: *Expr) Result<string> {
+    let left_type = analyze_expression(analyzer, expr.left);
+    if (left_type is Err) return left_type;
+    
+    let right_type = analyze_expression(analyzer, expr.right);
+    if (right_type is Err) return right_type;
+    
+    // 简单的类型检查
+    if (left_type.value != right_type.value) {
+        return Result.Err(make_error(
+            ErrorKind.TypeError,
+            "类型不匹配: " + left_type.value + " 和 " + right_type.value,
+            0, 0,
+            analyzer.filename
+        ));
+    }
+    
+    return left_type;
+}
+
+// 分析一元运算
+fn analyze_unary(analyzer: *SemanticAnalyzer, expr: *Expr) Result<string> {
+    return analyze_expression(analyzer, expr.operand);
+}
+
+// 分析函数调用
+fn analyze_call(analyzer: *SemanticAnalyzer, expr: *Expr) Result<string> {
+    // 分析被调用的表达式
+    let callee_type = analyze_expression(analyzer, expr.callee);
+    if (callee_type is Err) return callee_type;
+    
+    // 分析参数
+    for (expr.arguments) |arg| {
+        let result = analyze_expression(analyzer, arg);
+        if (result is Err) return result;
+    }
+    
+    return Result.Ok("unknown");
+}
+
+// 查找符号
+fn lookup_symbol(scope: *SymbolTable, name: string) *Symbol? {
+    if (scope.symbols.contains(name)) {
+        return &scope.symbols[name];
+    }
+    
+    if (scope.parent != null) {
+        return lookup_symbol(scope.parent, name);
+    }
+    
+    return null;
+}

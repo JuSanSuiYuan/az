@@ -1,0 +1,26 @@
+// AZ语言示例 - 变量和运算
+
+import std.io;
+
+fn main() int {
+    // 不可变变量
+    let x = 10;
+    let y = 20;
+    
+    // 可变变量
+    var sum = x + y;
+    
+    println("x = ");
+    println(x);
+    println("y = ");
+    println(y);
+    println("sum = ");
+    println(sum);
+    
+    // 字符串操作
+    let name = "AZ";
+    let greeting = "Hello, " + name + "!";
+    println(greeting);
+    
+    return 0;
+}

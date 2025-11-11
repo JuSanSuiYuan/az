@@ -1,0 +1,820 @@
+// std.string - 完整的字符串操作模块
+// 版本: v1.0.0
+// 日期: 2025-10-30
+
+module std.string;
+
+import std.error.{Result, Option, ParseError};
+import std.collections.Vec;
+
+// ============================================================================
+// C标准库接口
+// ============================================================================
+
+extern "C" {
+    fn strlen(s: *char) int;
+    fn strcmp(s1: *char, s2: *char) int;
+    fn strncmp(s1: *char, s2: *char, n: int) int;
+    fn strcpy(dest: *char, src: *char) *char;
+    fn strncpy(dest: *char, src: *char, n: int) *char;
+    fn strcat(dest: *char, src: *char) *char;
+    fn strchr(s: *char, c: int) *char;
+    fn strrchr(s: *char, c: int) *char;
+    fn strstr(haystack: *char, needle: *char) *char;
+    fn toupper(c: int) int;
+    fn tolower(c: int) int;
+    fn isalpha(c: int) int;
+    fn isdigit(c: int) int;
+    fn isalnum(c: int) int;
+    fn isspace(c: int) int;
+    fn atoi(s: *char) int;
+    fn atof(s: *char) float;
+    fn sprintf(str: *char, format: *char, ...) int;
+    fn malloc(size: int) *void;
+    fn free(ptr: *void) void;
+}
+
+// ============================================================================
+// 基础字符串操作
+// ============================================================================
+
+/// 获取字符串长度
+pub fn length(s: string) int {
+    return strlen(s.as_ptr());
+}
+
+/// 检查字符串是否为空
+pub fn is_empty(s: string) bool {
+    return length(s) == 0;
+}
+
+/// 连接两个字符串
+pub fn concat(a: string, b: string) string {
+    let len_a = length(a);
+    let len_b = length(b);
+    let buffer = malloc(len_a + len_b + 1) as *char;
+    
+    strcpy(buffer, a.as_ptr());
+    strcat(buffer, b.as_ptr());
+    
+    let result = string_from_cstr(buffer);
+    free(buffer);
+    return result;
+}
+
+/// 重复字符串n次
+pub fn repeat(s: string, n: int) string {
+    if (n <= 0) {
+        return "";
+    }
+    
+    let len = length(s);
+    let total_len = len * n;
+    let buffer = malloc(total_len + 1) as *char;
+    
+    var pos = 0;
+    for (var i = 0; i < n; i = i + 1) {
+        strcpy(buffer + pos, s.as_ptr());
+        pos = pos + len;
+    }
+    buffer[total_len] = 0;
+    
+    let result = string_from_cstr(buffer);
+    free(buffer);
+    return result;
+}
+
+// ============================================================================
+// 大小写转换
+// ============================================================================
+
+/// 转换为大写
+pub fn to_upper(s: string) string {
+    let len = length(s);
+    let buffer = malloc(len + 1) as *char;
+    let src = s.as_ptr();
+    
+    for (var i = 0; i < len; i = i + 1) {
+        buffer[i] = toupper(src[i]) as char;
+    }
+    buffer[len] = 0;
+    
+    let result = string_from_cstr(buffer);
+    free(buffer);
+    return result;
+}
+
+/// 转换为小写
+pub fn to_lower(s: string) string {
+    let len = length(s);
+    let buffer = malloc(len + 1) as *char;
+    let src = s.as_ptr();
+    
+    for (var i = 0; i < len; i = i + 1) {
+        buffer[i] = tolower(src[i]) as char;
+    }
+    buffer[len] = 0;
+    
+    let result = string_from_cstr(buffer);
+    free(buffer);
+    return result;
+}
+
+/// 转换为标题格式（首字母大写）
+pub fn to_title(s: string) string {
+    let len = length(s);
+    if (len == 0) {
+        return s;
+    }
+    
+    let buffer = malloc(len + 1) as *char;
+    let src = s.as_ptr();
+    
+    buffer[0] = toupper(src[0]) as char;
+    for (var i = 1; i < len; i = i + 1) {
+        buffer[i] = tolower(src[i]) as char;
+    }
+    buffer[len] = 0;
+    
+    let result = string_from_cstr(buffer);
+    free(buffer);
+    return result;
+}
+
+// ============================================================================
+// 子字符串操作
+// ============================================================================
+
+/// 获取子字符串
+pub fn substring(s: string, start: int, end: int) string {
+    let len = length(s);
+    
+    // 边界检查
+    if (start < 0) start = 0;
+    if (end > len) end = len;
+    if (start >= end) return "";
+    
+    let sub_len = end - start;
+    let buffer = malloc(sub_len + 1) as *char;
+    
+    strncpy(buffer, s.as_ptr() + start, sub_len);
+    buffer[sub_len] = 0;
+    
+    let result = string_from_cstr(buffer);
+    free(buffer);
+    return result;
+}
+
+/// 获取前n个字符
+pub fn take(s: string, n: int) string {
+    return substring(s, 0, n);
+}
+
+/// 跳过前n个字符
+pub fn skip(s: string, n: int) string {
+    let len = length(s);
+    return substring(s, n, len);
+}
+
+/// 获取最后n个字符
+pub fn take_last(s: string, n: int) string {
+    let len = length(s);
+    if (n >= len) return s;
+    return substring(s, len - n, len);
+}
+
+/// 跳过最后n个字符
+pub fn skip_last(s: string, n: int) string {
+    let len = length(s);
+    if (n >= len) return "";
+    return substring(s, 0, len - n);
+}
+
+// ============================================================================
+// 查找和匹配
+// ============================================================================
+
+/// 查找子字符串的位置
+pub fn find(s: string, sub: string) Option<int> {
+    let pos = strstr(s.as_ptr(), sub.as_ptr());
+    if (pos == null) {
+        return Option.None;
+    }
+    return Option.Some((pos - s.as_ptr()) as int);
+}
+
+/// 从后往前查找子字符串
+pub fn rfind(s: string, sub: string) Option<int> {
+    let len = length(s);
+    let sub_len = length(sub);
+    
+    if (sub_len > len) {
+        return Option.None;
+    }
+    
+    for (var i = len - sub_len; i >= 0; i = i - 1) {
+        if (strncmp(s.as_ptr() + i, sub.as_ptr(), sub_len) == 0) {
+            return Option.Some(i);
+        }
+    }
+    
+    return Option.None;
+}
+
+/// 查找字符的位置
+pub fn find_char(s: string, c: char) Option<int> {
+    let pos = strchr(s.as_ptr(), c as int);
+    if (pos == null) {
+        return Option.None;
+    }
+    return Option.Some((pos - s.as_ptr()) as int);
+}
+
+/// 从后往前查找字符
+pub fn rfind_char(s: string, c: char) Option<int> {
+    let pos = strrchr(s.as_ptr(), c as int);
+    if (pos == null) {
+        return Option.None;
+    }
+    return Option.Some((pos - s.as_ptr()) as int);
+}
+
+/// 检查是否包含子字符串
+pub fn contains(s: string, sub: string) bool {
+    return find(s, sub).is_some();
+}
+
+/// 检查是否以指定前缀开始
+pub fn starts_with(s: string, prefix: string) bool {
+    let prefix_len = length(prefix);
+    if (prefix_len > length(s)) {
+        return false;
+    }
+    return strncmp(s.as_ptr(), prefix.as_ptr(), prefix_len) == 0;
+}
+
+/// 检查是否以指定后缀结束
+pub fn ends_with(s: string, suffix: string) bool {
+    let s_len = length(s);
+    let suffix_len = length(suffix);
+    if (suffix_len > s_len) {
+        return false;
+    }
+    return strcmp(s.as_ptr() + s_len - suffix_len, suffix.as_ptr()) == 0;
+}
+
+/// 统计子字符串出现次数
+pub fn count(s: string, sub: string) int {
+    let sub_len = length(sub);
+    if (sub_len == 0) {
+        return 0;
+    }
+    
+    var count = 0;
+    var pos = 0;
+    let len = length(s);
+    
+    while (pos <= len - sub_len) {
+        if (strncmp(s.as_ptr() + pos, sub.as_ptr(), sub_len) == 0) {
+            count = count + 1;
+            pos = pos + sub_len;
+        } else {
+            pos = pos + 1;
+        }
+    }
+    
+    return count;
+}
+
+// ============================================================================
+// 分割和连接
+// ============================================================================
+
+/// 按分隔符分割字符串
+pub fn split(s: string, sep: string) Vec<string> {
+    let result = Vec<string>.new();
+    let len = length(s);
+    let sep_len = length(sep);
+    
+    if (sep_len == 0) {
+        result.push(s);
+        return result;
+    }
+    
+    var start = 0;
+    var pos = 0;
+    
+    while (pos <= len - sep_len) {
+        if (strncmp(s.as_ptr() + pos, sep.as_ptr(), sep_len) == 0) {
+            // 找到分隔符
+            let part = substring(s, start, pos);
+            result.push(part);
+            pos = pos + sep_len;
+            start = pos;
+        } else {
+            pos = pos + 1;
+        }
+    }
+    
+    // 添加最后一部分
+    let last_part = substring(s, start, len);
+    result.push(last_part);
+    
+    return result;
+}
+
+/// 分割n次
+pub fn split_n(s: string, sep: string, n: int) Vec<string> {
+    let result = Vec<string>.new();
+    let len = length(s);
+    let sep_len = length(sep);
+    
+    if (sep_len == 0 || n <= 0) {
+        result.push(s);
+        return result;
+    }
+    
+    var start = 0;
+    var pos = 0;
+    var splits = 0;
+    
+    while (pos <= len - sep_len && splits < n) {
+        if (strncmp(s.as_ptr() + pos, sep.as_ptr(), sep_len) == 0) {
+            let part = substring(s, start, pos);
+            result.push(part);
+            pos = pos + sep_len;
+            start = pos;
+            splits = splits + 1;
+        } else {
+            pos = pos + 1;
+        }
+    }
+    
+    // 添加剩余部分
+    let last_part = substring(s, start, len);
+    result.push(last_part);
+    
+    return result;
+}
+
+/// 按空白字符分割
+pub fn split_whitespace(s: string) Vec<string> {
+    let result = Vec<string>.new();
+    let len = length(s);
+    let src = s.as_ptr();
+    
+    var start = 0;
+    var in_word = false;
+    
+    for (var i = 0; i < len; i = i + 1) {
+        if (isspace(src[i]) != 0) {
+            if (in_word) {
+                let word = substring(s, start, i);
+                result.push(word);
+                in_word = false;
+            }
+        } else {
+            if (!in_word) {
+                start = i;
+                in_word = true;
+            }
+        }
+    }
+    
+    if (in_word) {
+        let word = substring(s, start, len);
+        result.push(word);
+    }
+    
+    return result;
+}
+
+/// 按行分割
+pub fn lines(s: string) Vec<string> {
+    return split(s, "\n");
+}
+
+/// 连接字符串数组
+pub fn join(parts: Vec<string>, sep: string) string {
+    let len = parts.len();
+    if (len == 0) {
+        return "";
+    }
+    
+    if (len == 1) {
+        return parts.get(0).unwrap();
+    }
+    
+    // 计算总长度
+    var total_len = 0;
+    let sep_len = length(sep);
+    
+    for (var i = 0; i < len; i = i + 1) {
+        total_len = total_len + length(parts.get(i).unwrap());
+    }
+    total_len = total_len + sep_len * (len - 1);
+    
+    // 构建结果
+    let buffer = malloc(total_len + 1) as *char;
+    var pos = 0;
+    
+    for (var i = 0; i < len; i = i + 1) {
+        let part = parts.get(i).unwrap();
+        let part_len = length(part);
+        strcpy(buffer + pos, part.as_ptr());
+        pos = pos + part_len;
+        
+        if (i < len - 1) {
+            strcpy(buffer + pos, sep.as_ptr());
+            pos = pos + sep_len;
+        }
+    }
+    buffer[total_len] = 0;
+    
+    let result = string_from_cstr(buffer);
+    free(buffer);
+    return result;
+}
+
+// ============================================================================
+// 修剪
+// ============================================================================
+
+/// 去除首尾空白字符
+pub fn trim(s: string) string {
+    let len = length(s);
+    let src = s.as_ptr();
+    
+    // 找到第一个非空白字符
+    var start = 0;
+    while (start < len && isspace(src[start]) != 0) {
+        start = start + 1;
+    }
+    
+    // 找到最后一个非空白字符
+    var end = len - 1;
+    while (end >= start && isspace(src[end]) != 0) {
+        end = end - 1;
+    }
+    
+    if (start > end) {
+        return "";
+    }
+    
+    return substring(s, start, end + 1);
+}
+
+/// 去除左侧空白字符
+pub fn trim_left(s: string) string {
+    let len = length(s);
+    let src = s.as_ptr();
+    
+    var start = 0;
+    while (start < len && isspace(src[start]) != 0) {
+        start = start + 1;
+    }
+    
+    return substring(s, start, len);
+}
+
+/// 去除右侧空白字符
+pub fn trim_right(s: string) string {
+    let len = length(s);
+    let src = s.as_ptr();
+    
+    var end = len - 1;
+    while (end >= 0 && isspace(src[end]) != 0) {
+        end = end - 1;
+    }
+    
+    return substring(s, 0, end + 1);
+}
+
+/// 去除指定前缀
+pub fn trim_prefix(s: string, prefix: string) string {
+    if (starts_with(s, prefix)) {
+        return skip(s, length(prefix));
+    }
+    return s;
+}
+
+/// 去除指定后缀
+pub fn trim_suffix(s: string, suffix: string) string {
+    if (ends_with(s, suffix)) {
+        return skip_last(s, length(suffix));
+    }
+    return s;
+}
+
+// ============================================================================
+// 替换
+// ============================================================================
+
+/// 替换所有匹配的子字符串
+pub fn replace(s: string, old: string, new: string) string {
+    let parts = split(s, old);
+    return join(parts, new);
+}
+
+/// 替换前n个匹配的子字符串
+pub fn replace_n(s: string, old: string, new: string, n: int) string {
+    if (n <= 0) {
+        return s;
+    }
+    
+    let parts = split_n(s, old, n);
+    return join(parts, new);
+}
+
+/// 替换所有匹配（别名）
+pub fn replace_all(s: string, old: string, new: string) string {
+    return replace(s, old, new);
+}
+
+// ============================================================================
+// 字符操作
+// ============================================================================
+
+/// 获取字符数组
+pub fn chars(s: string) Vec<char> {
+    let result = Vec<char>.new();
+    let len = length(s);
+    let src = s.as_ptr();
+    
+    for (var i = 0; i < len; i = i + 1) {
+        result.push(src[i]);
+    }
+    
+    return result;
+}
+
+/// 获取字节数组
+pub fn bytes(s: string) Vec<byte> {
+    let result = Vec<byte>.new();
+    let len = length(s);
+    let src = s.as_ptr();
+    
+    for (var i = 0; i < len; i = i + 1) {
+        result.push(src[i] as byte);
+    }
+    
+    return result;
+}
+
+/// 获取指定位置的字符
+pub fn char_at(s: string, index: int) Option<char> {
+    let len = length(s);
+    if (index < 0 || index >= len) {
+        return Option.None;
+    }
+    return Option.Some(s.as_ptr()[index]);
+}
+
+// ============================================================================
+// 验证
+// ============================================================================
+
+/// 检查是否只包含字母
+pub fn is_alpha(s: string) bool {
+    let len = length(s);
+    if (len == 0) {
+        return false;
+    }
+    
+    let src = s.as_ptr();
+    for (var i = 0; i < len; i = i + 1) {
+        if (isalpha(src[i]) == 0) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+/// 检查是否只包含数字
+pub fn is_numeric(s: string) bool {
+    let len = length(s);
+    if (len == 0) {
+        return false;
+    }
+    
+    let src = s.as_ptr();
+    for (var i = 0; i < len; i = i + 1) {
+        if (isdigit(src[i]) == 0) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+/// 检查是否只包含字母和数字
+pub fn is_alphanumeric(s: string) bool {
+    let len = length(s);
+    if (len == 0) {
+        return false;
+    }
+    
+    let src = s.as_ptr();
+    for (var i = 0; i < len; i = i + 1) {
+        if (isalnum(src[i]) == 0) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+/// 检查是否只包含空白字符
+pub fn is_whitespace(s: string) bool {
+    let len = length(s);
+    if (len == 0) {
+        return false;
+    }
+    
+    let src = s.as_ptr();
+    for (var i = 0; i < len; i = i + 1) {
+        if (isspace(src[i]) == 0) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+// ============================================================================
+// 格式化
+// ============================================================================
+
+/// 简单的字符串格式化
+pub fn format(template: string, args: Vec<string>) string {
+    var result = template;
+    
+    for (var i = 0; i < args.len(); i = i + 1) {
+        let placeholder = "{" + from_int(i) + "}";
+        result = replace(result, placeholder, args.get(i).unwrap());
+    }
+    
+    return result;
+}
+
+/// 左对齐填充
+pub fn pad_left(s: string, width: int, fill: char) string {
+    let len = length(s);
+    if (len >= width) {
+        return s;
+    }
+    
+    let padding_len = width - len;
+    let buffer = malloc(width + 1) as *char;
+    
+    for (var i = 0; i < padding_len; i = i + 1) {
+        buffer[i] = fill;
+    }
+    strcpy(buffer + padding_len, s.as_ptr());
+    buffer[width] = 0;
+    
+    let result = string_from_cstr(buffer);
+    free(buffer);
+    return result;
+}
+
+/// 右对齐填充
+pub fn pad_right(s: string, width: int, fill: char) string {
+    let len = length(s);
+    if (len >= width) {
+        return s;
+    }
+    
+    let padding_len = width - len;
+    let buffer = malloc(width + 1) as *char;
+    
+    strcpy(buffer, s.as_ptr());
+    for (var i = len; i < width; i = i + 1) {
+        buffer[i] = fill;
+    }
+    buffer[width] = 0;
+    
+    let result = string_from_cstr(buffer);
+    free(buffer);
+    return result;
+}
+
+/// 居中对齐
+pub fn center(s: string, width: int, fill: char) string {
+    let len = length(s);
+    if (len >= width) {
+        return s;
+    }
+    
+    let total_padding = width - len;
+    let left_padding = total_padding / 2;
+    let right_padding = total_padding - left_padding;
+    
+    let buffer = malloc(width + 1) as *char;
+    
+    for (var i = 0; i < left_padding; i = i + 1) {
+        buffer[i] = fill;
+    }
+    strcpy(buffer + left_padding, s.as_ptr());
+    for (var i = left_padding + len; i < width; i = i + 1) {
+        buffer[i] = fill;
+    }
+    buffer[width] = 0;
+    
+    let result = string_from_cstr(buffer);
+    free(buffer);
+    return result;
+}
+
+// ============================================================================
+// 类型转换
+// ============================================================================
+
+/// 字符串转整数
+pub fn to_int(s: string) Result<int, ParseError> {
+    let trimmed = trim(s);
+    if (is_empty(trimmed)) {
+        return Result.Err(ParseError.Empty);
+    }
+    
+    let value = atoi(trimmed.as_ptr());
+    return Result.Ok(value);
+}
+
+/// 字符串转浮点数
+pub fn to_float(s: string) Result<float, ParseError> {
+    let trimmed = trim(s);
+    if (is_empty(trimmed)) {
+        return Result.Err(ParseError.Empty);
+    }
+    
+    let value = atof(trimmed.as_ptr());
+    return Result.Ok(value);
+}
+
+/// 字符串转布尔值
+pub fn to_bool(s: string) Result<bool, ParseError> {
+    let trimmed = to_lower(trim(s));
+    
+    if (trimmed == "true" || trimmed == "1" || trimmed == "yes") {
+        return Result.Ok(true);
+    }
+    
+    if (trimmed == "false" || trimmed == "0" || trimmed == "no") {
+        return Result.Ok(false);
+    }
+    
+    return Result.Err(ParseError.InvalidFormat);
+}
+
+/// 整数转字符串
+pub fn from_int(n: int) string {
+    let buffer: [32]char;
+    sprintf(&buffer[0], "%d", n);
+    return string_from_cstr(&buffer[0]);
+}
+
+/// 浮点数转字符串
+pub fn from_float(f: float) string {
+    let buffer: [64]char;
+    sprintf(&buffer[0], "%f", f);
+    return string_from_cstr(&buffer[0]);
+}
+
+/// 布尔值转字符串
+pub fn from_bool(b: bool) string {
+    if (b) {
+        return "true";
+    } else {
+        return "false";
+    }
+}
+
+// ============================================================================
+// 比较
+// ============================================================================
+
+/// 比较两个字符串
+pub fn compare(a: string, b: string) int {
+    let result = strcmp(a.as_ptr(), b.as_ptr());
+    if (result < 0) return -1;
+    if (result > 0) return 1;
+    return 0;
+}
+
+/// 检查两个字符串是否相等
+pub fn equals(a: string, b: string) bool {
+    return strcmp(a.as_ptr(), b.as_ptr()) == 0;
+}
+
+/// 忽略大小写比较
+pub fn equals_ignore_case(a: string, b: string) bool {
+    return equals(to_lower(a), to_lower(b));
+}
+
+// ============================================================================
+// 辅助函数
+// ============================================================================
+
+extern fn string_from_cstr(cstr: *char) string;

@@ -1,0 +1,1028 @@
+// std.actor.timer.advanced - Actor高级定时器和提醒模块
+// 提供更完善的定时任务和提醒功能
+module std.actor.timer.advanced;
+
+import std.actor.{Actor, ActorId, ActorRef, Result, Error, ActorError, new_actor_id, actor_id_to_string};
+import std.time.{Time, Duration, Stopwatch};
+import std.collections.{Vec, HashMap, PriorityQueue};
+import std.string;
+import std.mem;
+
+// ============================================================================
+// 高级定时器相关类型定义
+// ============================================================================
+
+// 定时器ID
+struct TimerId {
+    id: string,
+}
+
+// 定时器类型
+enum TimerType {
+    Once,           // 一次性定时器
+    Repeated,       // 重复定时器
+    Cron,           // Cron表达式定时器
+    DelayedStart,   // 延迟启动定时器
+}
+
+// 定时器状态
+enum TimerState {
+    Scheduled,      // 已调度
+    Running,        // 运行中
+    Paused,         // 已暂停
+    Completed,      // 已完成
+    Cancelled,      // 已取消
+    Expired,        // 已过期
+}
+
+// 定时器优先级
+enum TimerPriority {
+    Low,            // 低优先级
+    Normal,         // 正常优先级
+    High,           // 高优先级
+    Critical,       // 关键优先级
+}
+
+// Cron表达式定时器配置
+struct CronExpression {
+    second: string,     // 秒 (0-59)
+    minute: string,     // 分 (0-59)
+    hour: string,       // 时 (0-23)
+    day: string,        // 日 (1-31)
+    month: string,      // 月 (1-12)
+    weekday: string,    // 周 (0-6, 0=Sunday)
+}
+
+// 定时器回调接口
+interface TimerCallback {
+    fn on_timer_tick(self: *Self, timer_id: TimerId) void;
+    fn on_timer_error(self: *Self, timer_id: TimerId, error: Error) void;
+    fn on_timer_complete(self: *Self, timer_id: TimerId) void;
+}
+
+// 定时器信息
+struct AdvancedTimerInfo {
+    id: TimerId,
+    actor_ref: ActorRef<*Actor>,
+    callback: *TimerCallback,
+    due_time: Time,              // 到期时间
+    period: Duration,            // 重复间隔（仅对重复定时器有效）
+    cron_expression: CronExpression, // Cron表达式（仅对Cron定时器有效）
+    timer_type: TimerType,
+    state: TimerState,
+    priority: TimerPriority,
+    tag: string,                 // 标签，用于标识定时器用途
+    created_time: Time,          // 创建时间
+    last_execution_time: Time,   // 最后执行时间
+    execution_count: int,        // 执行次数
+    max_executions: int,         // 最大执行次数（0表示无限制）
+    error_count: int,            // 错误次数
+    is_persistent: bool,         // 是否持久化
+    timezone: string,            // 时区
+}
+
+// 提醒器（Reminder）信息
+struct AdvancedReminderInfo {
+    name: string,                // 提醒器名称
+    actor_id: ActorId,           // 目标Actor ID
+    due_time: Time,              // 到期时间
+    period: Duration,            // 重复间隔
+    cron_expression: CronExpression, // Cron表达式
+    state: TimerState,
+    data: string,                // 附加数据
+    priority: TimerPriority,     // 优先级
+    created_time: Time,          // 创建时间
+    last_execution_time: Time,   // 最后执行时间
+    execution_count: int,        // 执行次数
+    max_executions: int,         // 最大执行次数（0表示无限制）
+    is_persistent: bool,         // 是否持久化
+    timezone: string,            // 时区
+}
+
+// 定时器统计信息
+struct TimerStats {
+    total_timers: int,           // 总定时器数
+    active_timers: int,          // 活跃定时器数
+    completed_timers: int,       // 已完成定时器数
+    cancelled_timers: int,       // 已取消定时器数
+    failed_timers: int,          // 失败定时器数
+    total_executions: int,       // 总执行次数
+    total_errors: int,           // 总错误数
+    average_execution_time_ms: int, // 平均执行时间（毫秒）
+}
+
+// ============================================================================
+// 高级定时器管理器
+// ============================================================================
+
+struct AdvancedTimerManager {
+    timers: HashMap<TimerId, AdvancedTimerInfo>,
+    reminders: HashMap<string, AdvancedReminderInfo>,
+    timer_queue: PriorityQueue<AdvancedTimerInfo>, // 基于到期时间的优先队列
+    next_timer_id: int,
+    stats: TimerStats,
+    is_running: bool,
+}
+
+// ============================================================================
+// 高级定时器管理器实现
+// ============================================================================
+
+// 创建高级定时器管理器
+fn new_advanced_timer_manager() AdvancedTimerManager {
+    return AdvancedTimerManager {
+        timers: HashMap.new(),
+        reminders: HashMap.new(),
+        timer_queue: PriorityQueue.new(),
+        next_timer_id: 1,
+        stats: TimerStats {
+            total_timers: 0,
+            active_timers: 0,
+            completed_timers: 0,
+            cancelled_timers: 0,
+            failed_timers: 0,
+            total_executions: 0,
+            total_errors: 0,
+            average_execution_time_ms: 0,
+        },
+        is_running: true,
+    };
+}
+
+// 生成新的定时器ID
+fn (self: *AdvancedTimerManager) generate_timer_id() TimerId {
+    let id = self.next_timer_id;
+    self.next_timer_id = self.next_timer_id + 1;
+    return TimerId { id: string.from_int(id) };
+}
+
+// 注册一次性定时器
+fn (self: *AdvancedTimerManager) register_once_timer<T: Actor>(
+    actor_ref: ActorRef<T>,
+    callback: *TimerCallback,
+    delay: Duration,
+    tag: string,
+    priority: TimerPriority
+) Result<TimerId, Error> {
+    let timer_id = self.generate_timer_id();
+    let now = time.now();
+    let due_time = time.time_add(now, delay);
+    
+    let timer_info = AdvancedTimerInfo {
+        id: timer_id,
+        actor_ref: actor_ref as ActorRef<*Actor>,
+        callback: callback,
+        due_time: due_time,
+        period: Duration { seconds: 0, nanos: 0 },
+        cron_expression: CronExpression { second: "", minute: "", hour: "", day: "", month: "", weekday: "" },
+        timer_type: TimerType.Once,
+        state: TimerState.Scheduled,
+        priority: priority,
+        tag: tag,
+        created_time: now,
+        last_execution_time: Time { seconds: 0, nanos: 0 },
+        execution_count: 0,
+        max_executions: 1, // 一次性定时器最大执行次数为1
+        error_count: 0,
+        is_persistent: false,
+        timezone: "UTC",
+    };
+    
+    self.timers.insert(timer_id, timer_info);
+    self.timer_queue.push(timer_info, self.get_timer_priority_value(timer_info));
+    
+    // 更新统计信息
+    self.stats.total_timers = self.stats.total_timers + 1;
+    self.stats.active_timers = self.stats.active_timers + 1;
+    
+    return Result.Ok(timer_id);
+}
+
+// 注册重复定时器
+fn (self: *AdvancedTimerManager) register_repeated_timer<T: Actor>(
+    actor_ref: ActorRef<T>,
+    callback: *TimerCallback,
+    initial_delay: Duration,
+    period: Duration,
+    tag: string,
+    priority: TimerPriority,
+    max_executions: int
+) Result<TimerId, Error> {
+    let timer_id = self.generate_timer_id();
+    let now = time.now();
+    let due_time = time.time_add(now, initial_delay);
+    
+    let timer_info = AdvancedTimerInfo {
+        id: timer_id,
+        actor_ref: actor_ref as ActorRef<*Actor>,
+        callback: callback,
+        due_time: due_time,
+        period: period,
+        cron_expression: CronExpression { second: "", minute: "", hour: "", day: "", month: "", weekday: "" },
+        timer_type: TimerType.Repeated,
+        state: TimerState.Scheduled,
+        priority: priority,
+        tag: tag,
+        created_time: now,
+        last_execution_time: Time { seconds: 0, nanos: 0 },
+        execution_count: 0,
+        max_executions: max_executions,
+        error_count: 0,
+        is_persistent: false,
+        timezone: "UTC",
+    };
+    
+    self.timers.insert(timer_id, timer_info);
+    self.timer_queue.push(timer_info, self.get_timer_priority_value(timer_info));
+    
+    // 更新统计信息
+    self.stats.total_timers = self.stats.total_timers + 1;
+    self.stats.active_timers = self.stats.active_timers + 1;
+    
+    return Result.Ok(timer_id);
+}
+
+// 注册Cron表达式定时器
+fn (self: *AdvancedTimerManager) register_cron_timer<T: Actor>(
+    actor_ref: ActorRef<T>,
+    callback: *TimerCallback,
+    cron_expression: CronExpression,
+    tag: string,
+    priority: TimerPriority,
+    max_executions: int
+) Result<TimerId, Error> {
+    let timer_id = self.generate_timer_id();
+    let now = time.now();
+    
+    // 计算下次执行时间
+    let due_time = self.calculate_next_cron_time(cron_expression, now);
+    
+    let timer_info = AdvancedTimerInfo {
+        id: timer_id,
+        actor_ref: actor_ref as ActorRef<*Actor>,
+        callback: callback,
+        due_time: due_time,
+        period: Duration { seconds: 0, nanos: 0 },
+        cron_expression: cron_expression,
+        timer_type: TimerType.Cron,
+        state: TimerState.Scheduled,
+        priority: priority,
+        tag: tag,
+        created_time: now,
+        last_execution_time: Time { seconds: 0, nanos: 0 },
+        execution_count: 0,
+        max_executions: max_executions,
+        error_count: 0,
+        is_persistent: false,
+        timezone: "UTC",
+    };
+    
+    self.timers.insert(timer_id, timer_info);
+    self.timer_queue.push(timer_info, self.get_timer_priority_value(timer_info));
+    
+    // 更新统计信息
+    self.stats.total_timers = self.stats.total_timers + 1;
+    self.stats.active_timers = self.stats.active_timers + 1;
+    
+    return Result.Ok(timer_id);
+}
+
+// 计算Cron表达式的下次执行时间（简化实现）
+fn (self: *AdvancedTimerManager) calculate_next_cron_time(cron: CronExpression, from_time: Time) Time {
+    // TODO: 实现真正的Cron表达式解析和下次执行时间计算
+    // 这里只是一个简化的占位实现
+    
+    // 默认返回1分钟后的时间
+    let one_minute = Duration { seconds: 60, nanos: 0 };
+    return time.time_add(from_time, one_minute);
+}
+
+// 取消定时器
+fn (self: *AdvancedTimerManager) cancel_timer(timer_id: TimerId) Result<bool, Error> {
+    let timer = self.timers.get(timer_id);
+    if (timer.is_none()) {
+        return Result.Ok(false); // 定时器不存在
+    }
+    
+    let mut_timer = self.timers.get_mut(timer_id).unwrap();
+    if (mut_timer.state == TimerState.Cancelled || mut_timer.state == TimerState.Completed || mut_timer.state == TimerState.Expired) {
+        return Result.Ok(false); // 定时器已取消、已完成或已过期
+    }
+    
+    let old_state = mut_timer.state;
+    mut_timer.state = TimerState.Cancelled;
+    
+    // 更新统计信息
+    self.stats.active_timers = self.stats.active_timers - 1;
+    self.stats.cancelled_timers = self.stats.cancelled_timers + 1;
+    
+    return Result.Ok(true);
+}
+
+// 暂停定时器
+fn (self: *AdvancedTimerManager) pause_timer(timer_id: TimerId) Result<bool, Error> {
+    let timer = self.timers.get(timer_id);
+    if (timer.is_none()) {
+        return Result.Ok(false); // 定时器不存在
+    }
+    
+    let mut_timer = self.timers.get_mut(timer_id).unwrap();
+    if (mut_timer.state != TimerState.Scheduled && mut_timer.state != TimerState.Running) {
+        return Result.Ok(false); // 定时器不在可暂停状态
+    }
+    
+    mut_timer.state = TimerState.Paused;
+    
+    // 更新统计信息
+    self.stats.active_timers = self.stats.active_timers - 1;
+    
+    return Result.Ok(true);
+}
+
+// 恢复定时器
+fn (self: *AdvancedTimerManager) resume_timer(timer_id: TimerId) Result<bool, Error> {
+    let timer = self.timers.get(timer_id);
+    if (timer.is_none()) {
+        return Result.Ok(false); // 定时器不存在
+    }
+    
+    let mut_timer = self.timers.get_mut(timer_id).unwrap();
+    if (mut_timer.state != TimerState.Paused) {
+        return Result.Ok(false); // 定时器不在暂停状态
+    }
+    
+    mut_timer.state = TimerState.Scheduled;
+    
+    // 更新统计信息
+    self.stats.active_timers = self.stats.active_timers + 1;
+    
+    return Result.Ok(true);
+}
+
+// 检查定时器是否存在
+fn (self: *AdvancedTimerManager) timer_exists(timer_id: TimerId) bool {
+    return self.timers.contains_key(timer_id);
+}
+
+// 获取定时器信息
+fn (self: *AdvancedTimerManager) get_timer_info(timer_id: TimerId) Option<AdvancedTimerInfo> {
+    return self.timers.get(timer_id);
+}
+
+// 获取定时器优先级值（用于优先队列）
+fn (self: *AdvancedTimerManager) get_timer_priority_value(timer: AdvancedTimerInfo) int {
+    // 优先级值越小，优先级越高
+    match timer.priority {
+        TimerPriority.Critical => {
+            return 0;
+        },
+        TimerPriority.High => {
+            return 1;
+        },
+        TimerPriority.Normal => {
+            return 2;
+        },
+        TimerPriority.Low => {
+            return 3;
+        }
+    }
+}
+
+// ============================================================================
+// 高级提醒器（Reminder）实现
+// ============================================================================
+
+// 注册提醒器
+fn (self: *AdvancedTimerManager) register_reminder(
+    actor_id: ActorId,
+    name: string,
+    due_time: Time,
+    period: Duration,
+    data: string,
+    priority: TimerPriority,
+    max_executions: int
+) Result<void, Error> {
+    // 检查提醒器是否已存在
+    if (self.reminders.contains_key(name)) {
+        return Result.Err(Error.new("提醒器已存在"));
+    }
+    
+    let now = time.now();
+    let reminder_info = AdvancedReminderInfo {
+        name: name,
+        actor_id: actor_id,
+        due_time: due_time,
+        period: period,
+        cron_expression: CronExpression { second: "", minute: "", hour: "", day: "", month: "", weekday: "" },
+        state: TimerState.Scheduled,
+        data: data,
+        priority: priority,
+        created_time: now,
+        last_execution_time: Time { seconds: 0, nanos: 0 },
+        execution_count: 0,
+        max_executions: max_executions,
+        is_persistent: false,
+        timezone: "UTC",
+    };
+    
+    self.reminders.insert(name, reminder_info);
+    
+    // 更新统计信息
+    self.stats.total_timers = self.stats.total_timers + 1;
+    self.stats.active_timers = self.stats.active_timers + 1;
+    
+    return Result.Ok(void);
+}
+
+// 注册Cron表达式提醒器
+fn (self: *AdvancedTimerManager) register_cron_reminder(
+    actor_id: ActorId,
+    name: string,
+    cron_expression: CronExpression,
+    data: string,
+    priority: TimerPriority,
+    max_executions: int
+) Result<void, Error> {
+    // 检查提醒器是否已存在
+    if (self.reminders.contains_key(name)) {
+        return Result.Err(Error.new("提醒器已存在"));
+    }
+    
+    let now = time.now();
+    
+    // 计算下次执行时间
+    let due_time = self.calculate_next_cron_time(cron_expression, now);
+    
+    let reminder_info = AdvancedReminderInfo {
+        name: name,
+        actor_id: actor_id,
+        due_time: due_time,
+        period: Duration { seconds: 0, nanos: 0 },
+        cron_expression: cron_expression,
+        state: TimerState.Scheduled,
+        data: data,
+        priority: priority,
+        created_time: now,
+        last_execution_time: Time { seconds: 0, nanos: 0 },
+        execution_count: 0,
+        max_executions: max_executions,
+        is_persistent: false,
+        timezone: "UTC",
+    };
+    
+    self.reminders.insert(name, reminder_info);
+    
+    // 更新统计信息
+    self.stats.total_timers = self.stats.total_timers + 1;
+    self.stats.active_timers = self.stats.active_timers + 1;
+    
+    return Result.Ok(void);
+}
+
+// 取消提醒器
+fn (self: *AdvancedTimerManager) unregister_reminder(name: string) Result<bool, Error> {
+    if (!self.reminders.contains_key(name)) {
+        return Result.Ok(false); // 提醒器不存在
+    }
+    
+    let reminder = self.reminders.get(name).unwrap();
+    if (reminder.state == TimerState.Cancelled || reminder.state == TimerState.Completed || reminder.state == TimerState.Expired) {
+        // 已经是终止状态，直接移除
+        self.reminders.remove(name);
+        return Result.Ok(true);
+    }
+    
+    // 更新状态为取消
+    let mut_reminder = self.reminders.get_mut(name).unwrap();
+    let old_state = mut_reminder.state;
+    mut_reminder.state = TimerState.Cancelled;
+    
+    // 更新统计信息
+    self.stats.active_timers = self.stats.active_timers - 1;
+    self.stats.cancelled_timers = self.stats.cancelled_timers + 1;
+    
+    return Result.Ok(true);
+}
+
+// 获取提醒器信息
+fn (self: *AdvancedTimerManager) get_reminder_info(name: string) Option<AdvancedReminderInfo> {
+    return self.reminders.get(name);
+}
+
+// 检查提醒器是否存在
+fn (self: *AdvancedTimerManager) reminder_exists(name: string) bool {
+    return self.reminders.contains_key(name);
+}
+
+// ============================================================================
+// 定时器处理逻辑
+// ============================================================================
+
+// 处理到期的定时器
+fn (self: *AdvancedTimerManager) process_due_timers() void {
+    if (!self.is_running) {
+        return;
+    }
+    
+    let now = time.now();
+    let mut timers_to_remove: Vec<TimerId> = Vec.new();
+    let mut timers_to_reschedule: Vec<(TimerId, AdvancedTimerInfo)> = Vec.new();
+    
+    // 遍历所有定时器
+    for (self.timers.entries()) |entry| {
+        let timer_id = entry.0;
+        let mut timer_info = entry.1;
+        
+        // 检查定时器是否到期
+        if ((timer_info.state == TimerState.Scheduled || timer_info.state == TimerState.Running) && 
+            (time.time_less(timer_info.due_time, now) || time.time_equal(timer_info.due_time, now))) {
+            
+            // 执行定时器回调
+            if (timer_info.callback != null) {
+                let start_time = time.now();
+                
+                try {
+                    timer_info.callback.on_timer_tick(timer_id);
+                    
+                    // 更新执行统计
+                    timer_info.last_execution_time = time.now();
+                    timer_info.execution_count = timer_info.execution_count + 1;
+                    self.stats.total_executions = self.stats.total_executions + 1;
+                    
+                    // 计算执行时间
+                    let end_time = time.now();
+                    let exec_duration = time.time_sub(end_time, start_time);
+                    let exec_duration_ms = exec_duration.seconds * 1000 + exec_duration.nanos / 1000000;
+                    
+                    // 更新平均执行时间
+                    if (self.stats.total_executions > 0) {
+                        self.stats.average_execution_time_ms = (self.stats.average_execution_time_ms * (self.stats.total_executions - 1) + exec_duration_ms) / self.stats.total_executions;
+                    } else {
+                        self.stats.average_execution_time_ms = exec_duration_ms;
+                    }
+                } catch (error) {
+                    // 处理执行错误
+                    timer_info.error_count = timer_info.error_count + 1;
+                    self.stats.total_errors = self.stats.total_errors + 1;
+                    self.stats.failed_timers = self.stats.failed_timers + 1;
+                    
+                    // 调用错误回调
+                    if (timer_info.callback != null) {
+                        timer_info.callback.on_timer_error(timer_id, error);
+                    }
+                }
+            }
+            
+            // 更新定时器状态
+            let mut_timer = self.timers.get_mut(timer_id).unwrap();
+            
+            match timer_info.timer_type {
+                TimerType.Once => {
+                    mut_timer.state = TimerState.Completed;
+                    timers_to_remove.push(timer_id);
+                    
+                    // 更新统计信息
+                    self.stats.active_timers = self.stats.active_timers - 1;
+                    self.stats.completed_timers = self.stats.completed_timers + 1;
+                    
+                    // 调用完成回调
+                    if (timer_info.callback != null) {
+                        timer_info.callback.on_timer_complete(timer_id);
+                    }
+                },
+                TimerType.Repeated => {
+                    // 检查是否达到最大执行次数
+                    if (timer_info.max_executions > 0 && timer_info.execution_count >= timer_info.max_executions) {
+                        mut_timer.state = TimerState.Completed;
+                        timers_to_remove.push(timer_id);
+                        
+                        // 更新统计信息
+                        self.stats.active_timers = self.stats.active_timers - 1;
+                        self.stats.completed_timers = self.stats.completed_timers + 1;
+                        
+                        // 调用完成回调
+                        if (timer_info.callback != null) {
+                            timer_info.callback.on_timer_complete(timer_id);
+                        }
+                    } else {
+                        // 重复定时器，重新调度
+                        mut_timer.due_time = time.time_add(now, timer_info.period);
+                        mut_timer.state = TimerState.Scheduled;
+                        timers_to_reschedule.push((timer_id, timer_info));
+                    }
+                },
+                TimerType.Cron => {
+                    // 检查是否达到最大执行次数
+                    if (timer_info.max_executions > 0 && timer_info.execution_count >= timer_info.max_executions) {
+                        mut_timer.state = TimerState.Completed;
+                        timers_to_remove.push(timer_id);
+                        
+                        // 更新统计信息
+                        self.stats.active_timers = self.stats.active_timers - 1;
+                        self.stats.completed_timers = self.stats.completed_timers + 1;
+                        
+                        // 调用完成回调
+                        if (timer_info.callback != null) {
+                            timer_info.callback.on_timer_complete(timer_id);
+                        }
+                    } else {
+                        // Cron定时器，计算下次执行时间
+                        mut_timer.due_time = self.calculate_next_cron_time(timer_info.cron_expression, now);
+                        mut_timer.state = TimerState.Scheduled;
+                        timers_to_reschedule.push((timer_id, timer_info));
+                    }
+                },
+                _ => {
+                    // 其他类型定时器，标记为完成
+                    mut_timer.state = TimerState.Completed;
+                    timers_to_remove.push(timer_id);
+                    
+                    // 更新统计信息
+                    self.stats.active_timers = self.stats.active_timers - 1;
+                    self.stats.completed_timers = self.stats.completed_timers + 1;
+                }
+            }
+        }
+    }
+    
+    // 移除已完成的一次性定时器
+    for (timers_to_remove) |timer_id| {
+        self.timers.remove(timer_id);
+    }
+    
+    // 重新调度需要重复执行的定时器
+    for (timers_to_reschedule) |entry| {
+        let timer_id = entry.0;
+        let timer_info = entry.1;
+        self.timer_queue.push(timer_info, self.get_timer_priority_value(timer_info));
+    }
+}
+
+// 处理到期的提醒器
+fn (self: *AdvancedTimerManager) process_due_reminders() void {
+    if (!self.is_running) {
+        return;
+    }
+    
+    let now = time.now();
+    let mut reminders_to_update: Vec<(string, AdvancedReminderInfo)> = Vec.new();
+    let mut reminders_to_remove: Vec<string> = Vec.new();
+    
+    // 遍历所有提醒器
+    for (self.reminders.entries()) |entry| {
+        let name = entry.0;
+        let mut reminder_info = entry.1;
+        
+        // 检查提醒器是否到期
+        if (reminder_info.state == TimerState.Scheduled && 
+            (time.time_less(reminder_info.due_time, now) || time.time_equal(reminder_info.due_time, now))) {
+            
+            // 触发提醒器（这里需要通知对应的Actor）
+            // TODO: 实现提醒器触发逻辑，向目标Actor发送消息
+            
+            // 更新执行统计
+            reminder_info.last_execution_time = time.now();
+            reminder_info.execution_count = reminder_info.execution_count + 1;
+            self.stats.total_executions = self.stats.total_executions + 1;
+            
+            // 更新提醒器状态
+            match reminder_info.timer_type {
+                TimerType.Once => {
+                    // 一次性提醒器，标记为完成
+                    reminder_info.state = TimerState.Completed;
+                    reminders_to_remove.push(name);
+                    
+                    // 更新统计信息
+                    self.stats.active_timers = self.stats.active_timers - 1;
+                    self.stats.completed_timers = self.stats.completed_timers + 1;
+                },
+                TimerType.Repeated => {
+                    // 检查是否达到最大执行次数
+                    if (reminder_info.max_executions > 0 && reminder_info.execution_count >= reminder_info.max_executions) {
+                        reminder_info.state = TimerState.Completed;
+                        reminders_to_remove.push(name);
+                        
+                        // 更新统计信息
+                        self.stats.active_timers = self.stats.active_timers - 1;
+                        self.stats.completed_timers = self.stats.completed_timers + 1;
+                    } else {
+                        // 重复提醒器，重新调度
+                        reminder_info.due_time = time.time_add(now, reminder_info.period);
+                        reminder_info.state = TimerState.Scheduled;
+                        reminders_to_update.push((name, reminder_info));
+                    }
+                },
+                TimerType.Cron => {
+                    // 检查是否达到最大执行次数
+                    if (reminder_info.max_executions > 0 && reminder_info.execution_count >= reminder_info.max_executions) {
+                        reminder_info.state = TimerState.Completed;
+                        reminders_to_remove.push(name);
+                        
+                        // 更新统计信息
+                        self.stats.active_timers = self.stats.active_timers - 1;
+                        self.stats.completed_timers = self.stats.completed_timers + 1;
+                    } else {
+                        // Cron提醒器，计算下次执行时间
+                        reminder_info.due_time = self.calculate_next_cron_time(reminder_info.cron_expression, now);
+                        reminder_info.state = TimerState.Scheduled;
+                        reminders_to_update.push((name, reminder_info));
+                    }
+                },
+                _ => {
+                    // 其他类型提醒器，标记为完成
+                    reminder_info.state = TimerState.Completed;
+                    reminders_to_remove.push(name);
+                    
+                    // 更新统计信息
+                    self.stats.active_timers = self.stats.active_timers - 1;
+                    self.stats.completed_timers = self.stats.completed_timers + 1;
+                }
+            }
+        }
+    }
+    
+    // 更新提醒器状态
+    for (reminders_to_update) |entry| {
+        self.reminders.insert(entry.0, entry.1);
+    }
+    
+    // 移除已完成的提醒器
+    for (reminders_to_remove) |name| {
+        self.reminders.remove(name);
+    }
+}
+
+// ============================================================================
+// 定时器后台任务
+// ============================================================================
+
+// 定时器处理主循环
+fn (self: *AdvancedTimerManager) timer_loop() void {
+    self.is_running = true;
+    
+    while (self.is_running) {
+        // 处理到期的定时器
+        self.process_due_timers();
+        
+        // 处理到期的提醒器
+        self.process_due_reminders();
+        
+        // 短暂休眠以避免忙等待
+        time.sleep_millis(100);
+    }
+}
+
+// 停止定时器处理循环
+fn (self: *AdvancedTimerManager) stop_timer_loop() void {
+    self.is_running = false;
+}
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+// 创建延迟Duration
+fn delay_duration(seconds: int, millis: int) Duration {
+    return Duration {
+        seconds: seconds,
+        nanos: millis * 1000000,
+    };
+}
+
+// 创建间隔Duration
+fn interval_duration(seconds: int, millis: int) Duration {
+    return Duration {
+        seconds: seconds,
+        nanos: millis * 1000000,
+    };
+}
+
+// 创建Cron表达式
+fn new_cron_expression(second: string, minute: string, hour: string, day: string, month: string, weekday: string) CronExpression {
+    return CronExpression {
+        second: second,
+        minute: minute,
+        hour: hour,
+        day: day,
+        month: month,
+        weekday: weekday,
+    };
+}
+
+// 获取定时器统计信息
+fn (self: *AdvancedTimerManager) get_stats() TimerStats {
+    return self.stats;
+}
+
+// 清理过期的定时器
+fn (self: *AdvancedTimerManager) cleanup_expired_timers(expiration_duration: Duration) int {
+    let now = time.now();
+    let expiration_threshold = time.time_sub(now, expiration_duration);
+    let mut cleaned_count = 0;
+    
+    let mut timers_to_remove: Vec<TimerId> = Vec.new();
+    
+    // 查找过期的定时器
+    for (self.timers.entries()) |entry| {
+        let timer_id = entry.0;
+        let timer_info = entry.1;
+        
+        if (time.time_less(timer_info.created_time, expiration_threshold)) {
+            timers_to_remove.push(timer_id);
+            cleaned_count = cleaned_count + 1;
+            
+            // 更新统计信息
+            if (timer_info.state == TimerState.Scheduled || timer_info.state == TimerState.Running) {
+                self.stats.active_timers = self.stats.active_timers - 1;
+            }
+            self.stats.completed_timers = self.stats.completed_timers + 1;
+        }
+    }
+    
+    // 移除过期的定时器
+    for (timers_to_remove) |timer_id| {
+        self.timers.remove(timer_id);
+    }
+    
+    return cleaned_count;
+}
+
+// ============================================================================
+// Actor定时器扩展
+// ============================================================================
+
+// 高级Actor定时器扩展混入
+struct AdvancedActorTimerMixin<T: Actor> {
+    actor: T,
+    timer_manager: *AdvancedTimerManager,
+    actor_ref: ActorRef<T>,
+}
+
+// 创建高级Actor定时器扩展
+fn new_advanced_actor_timer_mixin<T: Actor>(
+    actor: T,
+    timer_manager: *AdvancedTimerManager,
+    actor_ref: ActorRef<T>
+) AdvancedActorTimerMixin<T> {
+    return AdvancedActorTimerMixin<T> {
+        actor: actor,
+        timer_manager: timer_manager,
+        actor_ref: actor_ref,
+    };
+}
+
+// 注册一次性定时器
+fn (self: *AdvancedActorTimerMixin<T>) register_once_timer(
+    callback: *TimerCallback,
+    delay: Duration,
+    tag: string,
+    priority: TimerPriority
+) Result<TimerId, Error> {
+    return self.timer_manager.register_once_timer(self.actor_ref, callback, delay, tag, priority);
+}
+
+// 注册重复定时器
+fn (self: *AdvancedActorTimerMixin<T>) register_repeated_timer(
+    callback: *TimerCallback,
+    initial_delay: Duration,
+    period: Duration,
+    tag: string,
+    priority: TimerPriority,
+    max_executions: int
+) Result<TimerId, Error> {
+    return self.timer_manager.register_repeated_timer(self.actor_ref, callback, initial_delay, period, tag, priority, max_executions);
+}
+
+// 注册Cron表达式定时器
+fn (self: *AdvancedActorTimerMixin<T>) register_cron_timer(
+    callback: *TimerCallback,
+    cron_expression: CronExpression,
+    tag: string,
+    priority: TimerPriority,
+    max_executions: int
+) Result<TimerId, Error> {
+    return self.timer_manager.register_cron_timer(self.actor_ref, callback, cron_expression, tag, priority, max_executions);
+}
+
+// 取消定时器
+fn (self: *AdvancedActorTimerMixin<T>) cancel_timer(timer_id: TimerId) Result<bool, Error> {
+    return self.timer_manager.cancel_timer(timer_id);
+}
+
+// 暂停定时器
+fn (self: *AdvancedActorTimerMixin<T>) pause_timer(timer_id: TimerId) Result<bool, Error> {
+    return self.timer_manager.pause_timer(timer_id);
+}
+
+// 恢复定时器
+fn (self: *AdvancedActorTimerMixin<T>) resume_timer(timer_id: TimerId) Result<bool, Error> {
+    return self.timer_manager.resume_timer(timer_id);
+}
+
+// 注册提醒器
+fn (self: *AdvancedActorTimerMixin<T>) register_reminder(
+    name: string,
+    due_time: Time,
+    period: Duration,
+    data: string,
+    priority: TimerPriority,
+    max_executions: int
+) Result<void, Error> {
+    let actor_id = self.actor.get_id();
+    return self.timer_manager.register_reminder(actor_id, name, due_time, period, data, priority, max_executions);
+}
+
+// 注册Cron表达式提醒器
+fn (self: *AdvancedActorTimerMixin<T>) register_cron_reminder(
+    name: string,
+    cron_expression: CronExpression,
+    data: string,
+    priority: TimerPriority,
+    max_executions: int
+) Result<void, Error> {
+    let actor_id = self.actor.get_id();
+    return self.timer_manager.register_cron_reminder(actor_id, name, cron_expression, data, priority, max_executions);
+}
+
+// 取消提醒器
+fn (self: *AdvancedActorTimerMixin<T>) unregister_reminder(name: string) Result<bool, Error> {
+    return self.timer_manager.unregister_reminder(name);
+}
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+// 定时器类型转字符串
+fn timer_type_to_string(timer_type: TimerType) string {
+    match timer_type {
+        TimerType.Once => {
+            return "Once";
+        },
+        TimerType.Repeated => {
+            return "Repeated";
+        },
+        TimerType.Cron => {
+            return "Cron";
+        },
+        TimerType.DelayedStart => {
+            return "DelayedStart";
+        }
+    }
+}
+
+// 定时器状态转字符串
+fn timer_state_to_string(timer_state: TimerState) string {
+    match timer_state {
+        TimerState.Scheduled => {
+            return "Scheduled";
+        },
+        TimerState.Running => {
+            return "Running";
+        },
+        TimerState.Paused => {
+            return "Paused";
+        },
+        TimerState.Completed => {
+            return "Completed";
+        },
+        TimerState.Cancelled => {
+            return "Cancelled";
+        },
+        TimerState.Expired => {
+            return "Expired";
+        }
+    }
+}
+
+// 定时器优先级转字符串
+fn timer_priority_to_string(priority: TimerPriority) string {
+    match priority {
+        TimerPriority.Low => {
+            return "Low";
+        },
+        TimerPriority.Normal => {
+            return "Normal";
+        },
+        TimerPriority.High => {
+            return "High";
+        },
+        TimerPriority.Critical => {
+            return "Critical";
+        }
+    }
+}
+
+// 定时器统计信息转字符串
+fn timer_stats_to_string(stats: TimerStats) string {
+    let mut result = "定时器统计信息:\n";
+    result = string.concat(result, "  总定时器数: " + string.from_int(stats.total_timers) + "\n");
+    result = string.concat(result, "  活跃定时器数: " + string.from_int(stats.active_timers) + "\n");
+    result = string.concat(result, "  已完成定时器数: " + string.from_int(stats.completed_timers) + "\n");
+    result = string.concat(result, "  已取消定时器数: " + string.from_int(stats.cancelled_timers) + "\n");
+    result = string.concat(result, "  失败定时器数: " + string.from_int(stats.failed_timers) + "\n");
+    result = string.concat(result, "  总执行次数: " + string.from_int(stats.total_executions) + "\n");
+    result = string.concat(result, "  总错误数: " + string.from_int(stats.total_errors) + "\n");
+    result = string.concat(result, "  平均执行时间: " + string.from_int(stats.average_execution_time_ms) + " 毫秒\n");
+    return result;
+}

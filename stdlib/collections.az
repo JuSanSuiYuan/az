@@ -1,0 +1,247 @@
+// std.collections - 集合类型模块
+module std.collections;
+
+import std.mem;
+
+// 导入完整的集合实现
+import std.collections.vec;
+import std.collections.hashmap;
+import std.collections.hashset;
+import std.collections_arraylist;
+
+// 重新导出集合类型
+pub use std.collections.vec.{Vec};
+pub use std.collections.hashmap.{HashMap};
+pub use std.collections.hashset.{HashSet};
+pub use std.collections_arraylist.{ArrayList};
+
+// ============================================================================
+// 动态数组 Vec<T>
+// ============================================================================
+
+// C接口
+extern fn az_vec_new() ptr;
+extern fn az_vec_push(vec: ptr, item: ptr) void;
+extern fn az_vec_get(vec: ptr, index: int) ptr;
+extern fn az_vec_len(vec: ptr) int;
+extern fn az_vec_free(vec: ptr) void;
+
+struct Vec<T> {
+    data: ptr,
+    len: int,
+    capacity: int,
+}
+
+// 创建新的Vec
+fn vec_new<T>() Vec<T> {
+    return Vec<T>{
+        data: az_vec_new(),
+        len: 0,
+        capacity: 10,
+    };
+}
+
+// 添加元素
+fn vec_push<T>(self: Vec<T>, item: T) void {
+    az_vec_push(self.data, item);
+    self.len = self.len + 1;
+}
+
+// 获取元素
+fn vec_get<T>(self: Vec<T>, index: int) T {
+    return az_vec_get(self.data, index);
+}
+
+// 获取长度
+fn vec_len<T>(self: Vec<T>) int {
+    return az_vec_len(self.data);
+}
+
+// 释放Vec
+fn vec_free<T>(self: Vec<T>) void {
+    az_vec_free(self.data);
+}
+
+// 是否为空
+fn vec_is_empty<T>(self: Vec<T>) bool {
+    return self.len == 0;
+}
+
+// 清空
+fn vec_clear<T>(self: Vec<T>) void {
+    self.len = 0;
+}
+
+// 弹出最后一个元素
+fn vec_pop<T>(self: Vec<T>) ?T {
+    if (self.len == 0) {
+        return null;
+    }
+    self.len = self.len - 1;
+    return vec_get(self, self.len);
+}
+
+// ============================================================================
+// 哈希表 HashMap<K, V>
+// ============================================================================
+
+struct HashMap<K, V> {
+    data: ptr,
+    len: int,
+    capacity: int,
+}
+
+// 创建新的HashMap
+fn map_new<K, V>() HashMap<K, V> {
+    return HashMap<K, V>{
+        data: null,
+        len: 0,
+        capacity: 16,
+    };
+}
+
+// 插入键值对
+fn map_insert<K, V>(self: HashMap<K, V>, key: K, value: V) void {
+    // TODO: 实现
+}
+
+// 获取值
+fn map_get<K, V>(self: HashMap<K, V>, key: K) ?V {
+    // TODO: 实现
+    return null;
+}
+
+// 删除键值对
+fn map_remove<K, V>(self: HashMap<K, V>, key: K) ?V {
+    // TODO: 实现
+    return null;
+}
+
+// 是否包含键
+fn map_contains<K, V>(self: HashMap<K, V>, key: K) bool {
+    // TODO: 实现
+    return false;
+}
+
+// 获取长度
+fn map_len<K, V>(self: HashMap<K, V>) int {
+    return self.len;
+}
+
+// 是否为空
+fn map_is_empty<K, V>(self: HashMap<K, V>) bool {
+    return self.len == 0;
+}
+
+// 清空
+fn map_clear<K, V>(self: HashMap<K, V>) void {
+    self.len = 0;
+}
+
+// ============================================================================
+// 集合 HashSet<T>
+// ============================================================================
+
+struct HashSet<T> {
+    data: ptr,
+    len: int,
+    capacity: int,
+}
+
+// 创建新的HashSet
+fn set_new<T>() HashSet<T> {
+    return HashSet<T>{
+        data: null,
+        len: 0,
+        capacity: 16,
+    };
+}
+
+// 插入元素
+fn set_insert<T>(self: HashSet<T>, item: T) bool {
+    // TODO: 实现
+    return true;
+}
+
+// 删除元素
+fn set_remove<T>(self: HashSet<T>, item: T) bool {
+    // TODO: 实现
+    return false;
+}
+
+// 是否包含元素
+fn set_contains<T>(self: HashSet<T>, item: T) bool {
+    // TODO: 实现
+    return false;
+}
+
+// 获取长度
+fn set_len<T>(self: HashSet<T>) int {
+    return self.len;
+}
+
+// 是否为空
+fn set_is_empty<T>(self: HashSet<T>) bool {
+    return self.len == 0;
+}
+
+// 清空
+fn set_clear<T>(self: HashSet<T>) void {
+    self.len = 0;
+}
+
+// ============================================================================
+// 链表 LinkedList<T>
+// ============================================================================
+
+struct Node<T> {
+    data: T,
+    next: ?Node<T>,
+}
+
+struct LinkedList<T> {
+    head: ?Node<T>,
+    tail: ?Node<T>,
+    len: int,
+}
+
+// 创建新的LinkedList
+fn list_new<T>() LinkedList<T> {
+    return LinkedList<T>{
+        head: null,
+        tail: null,
+        len: 0,
+    };
+}
+
+// 在头部插入
+fn list_push_front<T>(self: LinkedList<T>, item: T) void {
+    // TODO: 实现
+}
+
+// 在尾部插入
+fn list_push_back<T>(self: LinkedList<T>, item: T) void {
+    // TODO: 实现
+}
+
+// 从头部弹出
+fn list_pop_front<T>(self: LinkedList<T>) ?T {
+    // TODO: 实现
+    return null;
+}
+
+// 从尾部弹出
+fn list_pop_back<T>(self: LinkedList<T>) ?T {
+    // TODO: 实现
+    return null;
+}
+
+// 获取长度
+fn list_len<T>(self: LinkedList<T>) int {
+    return self.len;
+}
+
+// 是否为空
+fn list_is_empty<T>(self: LinkedList<T>) bool {
+    return self.len == 0;
+}

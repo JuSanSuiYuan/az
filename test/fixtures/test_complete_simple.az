@@ -1,0 +1,47 @@
+// AZ语言完整功能测试
+
+// 递归函数
+fn factorial(n: int) int {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+// 主函数
+fn main() int {
+    // 测试变量和赋值
+    var x = 10;
+    x = x + 5;
+    
+    // 测试函数调用
+    let fact = factorial(5);
+    
+    // 测试数组
+    let numbers = [1, 2, 3, 4, 5];
+    let first = numbers[0];
+    let second = numbers[1];
+    
+    // 测试控制流
+    var result = 0;
+    if (fact > 100) {
+        result = 1;
+    } else {
+        result = 0;
+    }
+    
+    // 测试For循环
+    var sum = 0;
+    for (var i = 0; i < 5; i = i + 1) {
+        sum = sum + i;
+    }
+    
+    // 测试While循环
+    var count = 0;
+    while (count < 3) {
+        count = count + 1;
+    }
+    
+    // 返回综合结果
+    return x + fact + first + second + result + sum + count;
+}

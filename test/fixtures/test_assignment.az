@@ -1,0 +1,7 @@
+fn main() int {
+    var x = 10;
+    println("x = " + x);
+    x = 20;
+    println("x = " + x);
+    return 0;
+}

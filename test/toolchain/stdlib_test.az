@@ -1,0 +1,36 @@
+// 标准库测试程序
+
+import std.io;
+import std.collections.arraylist.{ArrayList};
+import std.string;
+
+fn main() int {
+    // 测试ArrayList
+    let mut list = ArrayList.new<int>();
+    
+    // 添加元素
+    list.add(1);
+    list.add(2);
+    list.add(3);
+    
+    println("列表大小: {}", list.len());
+    
+    // 访问元素
+    match list.get(0) {
+        case Option.Some(value) => 
+            println("第一个元素: {}", value);
+        case Option.None => 
+            println("无法获取第一个元素");
+    }
+    
+    // 迭代列表
+    list.for_each(fn(x: int) void {
+        println("元素: {}", x);
+    });
+    
+    // 测试字符串功能
+    let str = "Hello, AZ!";
+    println("字符串长度: {}", string.length(str));
+    
+    return 0;
+}

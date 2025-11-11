@@ -1,0 +1,192 @@
+// AZ语言 - 结构体示例
+// 展示无头文件的模块化设计
+
+module examples.struct_example;
+
+import std.io;
+
+// ============================================================================
+// 公开结构体定义
+// ============================================================================
+
+// 3D向量
+pub struct Vec3 {
+    pub x: float,
+    pub y: float,
+    pub z: float
+}
+
+// 2D点
+pub struct Point {
+    pub x: int,
+    pub y: int
+}
+
+// 矩形
+pub struct Rectangle {
+    pub top_left: Point,
+    pub width: int,
+    pub height: int
+}
+
+// 人员信息
+pub struct Person {
+    pub name: string,
+    pub age: int,
+    pub email: string
+}
+
+// ============================================================================
+// Vec3操作函数
+// ============================================================================
+
+pub fn vec3_new(x: float, y: float, z: float) Vec3 {
+    return Vec3 { x: x, y: y, z: z };
+}
+
+pub fn vec3_add(a: Vec3, b: Vec3) Vec3 {
+    return Vec3 {
+        x: a.x + b.x,
+        y: a.y + b.y,
+        z: a.z + b.z
+    };
+}
+
+pub fn vec3_dot(a: Vec3, b: Vec3) float {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+pub fn vec3_length(v: Vec3) float {
+    return sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+}
+
+pub fn vec3_print(v: Vec3) void {
+    println("Vec3(" + v.x + ", " + v.y + ", " + v.z + ")");
+}
+
+// ============================================================================
+// Point操作函数
+// ============================================================================
+
+pub fn point_new(x: int, y: int) Point {
+    return Point { x: x, y: y };
+}
+
+pub fn point_distance(a: Point, b: Point) float {
+    let dx = a.x - b.x;
+    let dy = a.y - b.y;
+    return sqrt(dx * dx + dy * dy);
+}
+
+pub fn point_print(p: Point) void {
+    println("Point(" + p.x + ", " + p.y + ")");
+}
+
+// ============================================================================
+// Rectangle操作函数
+// ============================================================================
+
+pub fn rect_new(x: int, y: int, width: int, height: int) Rectangle {
+    return Rectangle {
+        top_left: point_new(x, y),
+        width: width,
+        height: height
+    };
+}
+
+pub fn rect_area(r: Rectangle) int {
+    return r.width * r.height;
+}
+
+pub fn rect_perimeter(r: Rectangle) int {
+    return 2 * (r.width + r.height);
+}
+
+pub fn rect_print(r: Rectangle) void {
+    println("Rectangle {");
+    println("  位置: (" + r.top_left.x + ", " + r.top_left.y + ")");
+    println("  宽度: " + r.width);
+    println("  高度: " + r.height);
+    println("  面积: " + rect_area(r));
+    println("  周长: " + rect_perimeter(r));
+    println("}");
+}
+
+// ============================================================================
+// Person操作函数
+// ============================================================================
+
+pub fn person_new(name: string, age: int, email: string) Person {
+    return Person {
+        name: name,
+        age: age,
+        email: email
+    };
+}
+
+pub fn person_print(p: Person) void {
+    println("Person {");
+    println("  姓名: " + p.name);
+    println("  年龄: " + p.age);
+    println("  邮箱: " + p.email);
+    println("}");
+}
+
+// ============================================================================
+// 主函数
+// ============================================================================
+
+pub fn main() int {
+    println("=== AZ语言 - 结构体示例 ===");
+    println("");
+    
+    // Vec3示例
+    println("--- 3D向量 ---");
+    let v1 = vec3_new(1.0, 2.0, 3.0);
+    let v2 = vec3_new(4.0, 5.0, 6.0);
+    
+    print("v1 = ");
+    vec3_print(v1);
+    print("v2 = ");
+    vec3_print(v2);
+    
+    let v3 = vec3_add(v1, v2);
+    print("v1 + v2 = ");
+    vec3_print(v3);
+    
+    let dot = vec3_dot(v1, v2);
+    println("v1 · v2 = " + dot);
+    
+    let len = vec3_length(v1);
+    println("|v1| = " + len);
+    println("");
+    
+    // Point示例
+    println("--- 2D点 ---");
+    let p1 = point_new(0, 0);
+    let p2 = point_new(3, 4);
+    
+    print("p1 = ");
+    point_print(p1);
+    print("p2 = ");
+    point_print(p2);
+    
+    let dist = point_distance(p1, p2);
+    println("距离 = " + dist);
+    println("");
+    
+    // Rectangle示例
+    println("--- 矩形 ---");
+    let rect = rect_new(10, 20, 30, 40);
+    rect_print(rect);
+    println("");
+    
+    // Person示例
+    println("--- 人员信息 ---");
+    let person = person_new("张三", 25, "zhangsan@example.com");
+    person_print(person);
+    println("");
+    
+    println("=== 示例完成 ===");
+    return 0;
+}

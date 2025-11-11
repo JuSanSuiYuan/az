@@ -1,0 +1,254 @@
+// 高级Actor持久化系统演示程序
+import std.actor.persistence.advanced.{AdvancedPersistenceManager, AdvancedPersistenceProvider, AdvancedFilePersistenceProvider, AdvancedPersistentActorMixin, PersistenceStrategy, PersistenceLevel, PersistenceFormat, default_advanced_persistence_config, new_advanced_persistence_manager, persistence_strategy_to_string, persistence_level_to_string, persistence_format_to_string, persistence_stats_to_string};
+import std.actor.{Actor, ActorId, new_actor_id, actor_id_to_string, Result, Error};
+import std.time.{now, srand, rand, sleep_millis};
+import std.string;
+import std.io.{println};
+
+// 简单的计数器Actor（可持久化）
+struct PersistentCounterActor {
+    id: ActorId,
+    count: int,
+    name: string,
+}
+
+impl Actor for PersistentCounterActor {
+    fn handle_message(self: *Self, message: *Message) Result<void, Error> {
+        // 检查消息类型
+        if (message is IncrementMessage) {
+            let increment_msg = message as IncrementMessage;
+            self.count = self.count + increment_msg.value;
+            println(self.name + " 计数器增加 " + string.from_int(increment_msg.value) + "，当前值: " + string.from_int(self.count));
+        } else if (message is GetCountMessage) {
+            let get_count_msg = message as GetCountMessage;
+            println(self.name + " 当前计数: " + string.from_int(self.count));
+        }
+        
+        return Result.Ok(void);
+    }
+    
+    fn get_id(self: *Self) ActorId {
+        return self.id;
+    }
+    
+    fn on_activate(self: *Self) Result<void, Error> {
+        println(self.name + " 激活，初始计数: " + string.from_int(self.count));
+        return Result.Ok(void);
+    }
+    
+    fn on_deactivate(self: *Self) Result<void, Error> {
+        println(self.name + " 停用，最终计数: " + string.from_int(self.count));
+        return Result.Ok(void);
+    }
+}
+
+impl PersistentActor for PersistentCounterActor {
+    // 获取要持久化的状态
+    fn get_persistent_state(self: *Self) *any {
+        // 在实际实现中，这里应该返回可序列化的状态数据
+        return self as *any;
+    }
+    
+    // 从持久化状态恢复
+    fn restore_from_state(self: *Self, state: *any) Result<void, Error> {
+        // 在实际实现中，这里应该从状态数据恢复Actor状态
+        println(self.name + " 从持久化状态恢复");
+        return Result.Ok(void);
+    }
+    
+    // 获取状态键（用于持久化）
+    fn get_state_key(self: *Self) string {
+        return self.id.id;
+    }
+}
+
+// 消息定义
+struct IncrementMessage {
+    value: int,
+}
+
+impl Message for IncrementMessage {}
+
+struct GetCountMessage {}
+
+impl Message for GetCountMessage {}
+
+fn main() int {
+    // 初始化随机数种子
+    let current_time = now();
+    srand(current_time.seconds as int);
+    
+    println("=== 高级Actor持久化系统演示 ===");
+    
+    // 创建持久化配置
+    let config = default_advanced_persistence_config();
+    
+    println("持久化配置:");
+    println("  提供者类型: " + config.provider_type);
+    println("  基础路径: " + config.base_path);
+    println("  持久化策略: " + persistence_strategy_to_string(config.strategy));
+    println("  持久化级别: " + persistence_level_to_string(config.level));
+    println("  持久化格式: " + persistence_format_to_string(config.format));
+    println("  自动保存间隔: " + string.from_int(config.auto_save_interval_ms) + " 毫秒");
+    println("  快照间隔: " + string.from_int(config.snapshot_interval) + " 事件");
+    
+    // 创建高级持久化管理器
+    let manager_result = new_advanced_persistence_manager(config);
+    
+    if (manager_result.is_err()) {
+        println("创建持久化管理器失败: " + manager_result.unwrap_err().message);
+        return 1;
+    }
+    
+    let mut persistence_manager = manager_result.unwrap();
+    
+    println("\n已创建持久化管理器");
+    
+    // 创建Actor实例
+    let actor_id = new_actor_id("persistent-counter-1");
+    let mut actor = PersistentCounterActor {
+        id: actor_id,
+        count: 0,
+        name: "PersistentCounter",
+    };
+    
+    println("\n创建Actor:");
+    println("  Actor ID: " + actor_id.id);
+    
+    // 创建高级持久化Actor混入
+    let mut actor_mixin = new_advanced_persistent_actor_mixin(&actor, &persistence_manager);
+    
+    println("\n启用持久化功能:");
+    actor_mixin.enable_auto_save();
+    actor_mixin.enable_event_sourcing();
+    actor_mixin.enable_snapshot();
+    
+    println("  自动保存: 已启用");
+    println("  事件溯源: 已启用");
+    println("  快照: 已启用");
+    
+    // 检查状态是否存在
+    println("\n检查状态是否存在:");
+    let exists_result = persistence_manager.state_exists(actor_id);
+    if (exists_result.is_err()) {
+        println("检查状态失败: " + exists_result.unwrap_err().message);
+    } else {
+        let exists = exists_result.unwrap();
+        println("  状态存在: " + string.from_bool(exists));
+    }
+    
+    // 模拟Actor操作
+    println("\n模拟Actor操作:");
+    
+    // 增加计数
+    for (var i = 1; i <= 5; i = i + 1) {
+        actor.count = actor.count + i;
+        println("  增加 " + string.from_int(i) + "，当前计数: " + string.from_int(actor.count));
+        
+        // 保存事件
+        let event_data = "{\"operation\": \"increment\", \"value\": " + string.from_int(i) + "}";
+        let event_result = actor_mixin.save_event("Increment", event_data);
+        if (event_result.is_err()) {
+            println("  保存事件失败: " + event_result.unwrap_err().message);
+        } else {
+            println("  事件已保存");
+        }
+    }
+    
+    // 标记为脏数据
+    println("\n标记为脏数据:");
+    actor_mixin.mark_dirty();
+    println("  已标记");
+    
+    // 手动保存状态
+    println("\n手动保存状态:");
+    let save_result = actor_mixin.save_state();
+    if (save_result.is_err()) {
+        println("保存状态失败: " + save_result.unwrap_err().message);
+    } else {
+        println("状态保存成功");
+    }
+    
+    // 再次检查状态是否存在
+    println("\n再次检查状态是否存在:");
+    let exists_result2 = persistence_manager.state_exists(actor_id);
+    if (exists_result2.is_err()) {
+        println("检查状态失败: " + exists_result2.unwrap_err().message);
+    } else {
+        let exists = exists_result2.unwrap();
+        println("  状态存在: " + string.from_bool(exists));
+    }
+    
+    // 加载状态
+    println("\n加载状态:");
+    let load_result = actor_mixin.load_state();
+    if (load_result.is_err()) {
+        println("加载状态失败: " + load_result.unwrap_err().message);
+    } else {
+        let exists = load_result.unwrap();
+        println("状态加载成功，状态存在: " + string.from_bool(exists));
+    }
+    
+    // 重置计数器并从事件恢复
+    println("\n重置计数器并从事件恢复:");
+    actor.count = 0;
+    println("  计数器已重置为0");
+    
+    let replay_result = actor_mixin.replay_events(1);
+    if (replay_result.is_err()) {
+        println("重放事件失败: " + replay_result.unwrap_err().message);
+    } else {
+        println("事件重放成功，当前计数: " + string.from_int(actor.count));
+    }
+    
+    // 加载最新快照
+    println("\n加载最新快照:");
+    let snapshot_result = persistence_manager.load_latest_snapshot(actor_id);
+    if (snapshot_result.is_err()) {
+        println("加载快照失败: " + snapshot_result.unwrap_err().message);
+    } else {
+        let snapshot_option = snapshot_result.unwrap();
+        if (snapshot_option.is_some()) {
+            println("快照加载成功");
+        } else {
+            println("没有找到快照");
+        }
+    }
+    
+    // 显示持久化统计信息
+    println("\n持久化统计信息:");
+    let stats = persistence_manager.get_stats();
+    println(persistence_stats_to_string(stats));
+    
+    // 删除状态
+    println("\n删除状态:");
+    let delete_result = persistence_manager.delete_actor_state(actor_id);
+    if (delete_result.is_err()) {
+        println("删除状态失败: " + delete_result.unwrap_err().message);
+    } else {
+        println("状态删除成功");
+    }
+    
+    // 最终检查状态是否存在
+    println("\n最终检查状态是否存在:");
+    let exists_result3 = persistence_manager.state_exists(actor_id);
+    if (exists_result3.is_err()) {
+        println("检查状态失败: " + exists_result3.unwrap_err().message);
+    } else {
+        let exists = exists_result3.unwrap();
+        println("  状态存在: " + string.from_bool(exists));
+    }
+    
+    println("\n=== 演示完成 ===");
+    
+    return 0;
+}
+
+// 布尔值转字符串
+fn string.from_bool(b: bool) string {
+    if (b) {
+        return "true";
+    } else {
+        return "false";
+    }
+}

@@ -1,0 +1,65 @@
+// AZ编译器Token定义
+
+// Token类型
+enum TokenType {
+    // 关键字
+    Fn, Return, If, Else, For, While, Let, Var, Const,
+    Import, Struct, Enum, Match, Comptime,
+    
+    // 标识符和字面量
+    Identifier, IntLiteral, FloatLiteral, StringLiteral,
+    
+    // 运算符
+    Plus, Minus, Star, Slash, Percent,
+    Equal, EqualEqual, BangEqual,
+    Less, LessEqual, Greater, GreaterEqual,
+    AmpAmp, PipePipe, Bang,
+    
+    // 分隔符
+    LeftParen, RightParen,
+    LeftBrace, RightBrace,
+    LeftBracket, RightBracket,
+    Comma, Semicolon, Colon, Dot, Arrow, Pipe,
+    
+    // 特殊
+    Eof, Unknown
+}
+
+// Token结构
+struct Token {
+    type: TokenType,
+    lexeme: string,
+    line: int,
+    column: int
+}
+
+// 创建Token的辅助函数
+fn make_token(type: TokenType, lexeme: string, line: int, column: int) Token {
+    return Token {
+        type: type,
+        lexeme: lexeme,
+        line: line,
+        column: column
+    };
+}
+
+// 关键字映射
+fn get_keyword_type(word: string) TokenType? {
+    match word {
+        "fn" => return TokenType.Fn,
+        "return" => return TokenType.Return,
+        "if" => return TokenType.If,
+        "else" => return TokenType.Else,
+        "for" => return TokenType.For,
+        "while" => return TokenType.While,
+        "let" => return TokenType.Let,
+        "var" => return TokenType.Var,
+        "const" => return TokenType.Const,
+        "import" => return TokenType.Import,
+        "struct" => return TokenType.Struct,
+        "enum" => return TokenType.Enum,
+        "match" => return TokenType.Match,
+        "comptime" => return TokenType.Comptime,
+        _ => return null
+    }
+}

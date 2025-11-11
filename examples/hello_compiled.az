@@ -1,0 +1,9 @@
+// AZ语言 - Hello World (可编译版本)
+// 这个程序可以编译成可执行文件！
+
+fn main() int {
+    println("Hello, World!");
+    println("Welcome to AZ Language!");
+    println("This is a compiled program!");
+    return 0;
+}

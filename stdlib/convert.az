@@ -1,0 +1,376 @@
+// std.convert - 类型转换模块
+module std.convert;
+
+// ============================================================================
+// 字符串转换
+// ============================================================================
+
+// 整数转字符串
+extern fn az_int_to_string(value: int) string;
+
+// 字符串转整数
+extern fn az_string_to_int(s: string) int;
+
+// 浮点数转字符串
+extern fn az_float_to_string(value: float) string;
+
+// 字符串转浮点数
+extern fn az_string_to_float(s: string) float;
+
+// ============================================================================
+// 安全转换（带错误处理）
+// ============================================================================
+
+// 字符串转整数（安全）
+fn parse_int(s: string) Result<int, Error> {
+    // 检查字符串是否为空
+    if (s == "") {
+        return Err(Error::new("空字符串无法转换为整数"));
+    }
+    
+    // 检查是否包含非数字字符（除了开头的+/-号）
+    let len = s.len();
+    var i = 0;
+    if (s[0] == '+' || s[0] == '-') {
+        i = 1;
+        if (len == 1) {
+            return Err(Error::new("无效的数字格式"));
+        }
+    }
+    
+    // 检查剩余字符是否都是数字
+    while (i < len) {
+        let c = s[i];
+        if (c < '0' || c > '9') {
+            return Err(Error::new("包含非数字字符"));
+        }
+        i = i + 1;
+    }
+    
+    let value = az_string_to_int(s);
+    return Ok(value);
+}
+
+// 字符串转浮点数（安全）
+fn parse_float(s: string) Result<float, Error> {
+    // 检查字符串是否为空
+    if (s == "") {
+        return Err(Error::new("空字符串无法转换为浮点数"));
+    }
+    
+    // 简单的格式检查（可以更完善）
+    let len = s.len();
+    var i = 0;
+    var dot_count = 0;
+    
+    if (s[0] == '+' || s[0] == '-') {
+        i = 1;
+        if (len == 1) {
+            return Err(Error::new("无效的浮点数格式"));
+        }
+    }
+    
+    // 检查字符是否有效
+    while (i < len) {
+        let c = s[i];
+        if (c == '.') {
+            dot_count = dot_count + 1;
+            if (dot_count > 1) {
+                return Err(Error::new("浮点数格式错误：多个小数点"));
+            }
+        } else if (c < '0' || c > '9') {
+            return Err(Error::new("包含无效字符"));
+        }
+        i = i + 1;
+    }
+    
+    let value = az_string_to_float(s);
+    return Ok(value);
+}
+
+// 字符串转布尔值
+fn parse_bool(s: string) Result<bool, Error> {
+    if (s == "true" || s == "1" || s == "yes" || s == "on") {
+        return Ok(true);
+    }
+    if (s == "false" || s == "0" || s == "no" || s == "off") {
+        return Ok(false);
+    }
+    return Err(Error::new("无效的布尔值: " + s));
+}
+
+// ============================================================================
+// 数值转换
+// ============================================================================
+
+// 整数转浮点数
+fn int_to_float(value: int) float {
+    // 在AZ中，整数可以直接转换为浮点数
+    return value as float;
+}
+
+// 浮点数转整数（截断）
+fn float_to_int(value: float) int {
+    // 截断小数部分
+    if (value >= 0.0) {
+        return (value - (value % 1.0)) as int;
+    } else {
+        return (value - (value % 1.0)) as int;
+    }
+}
+
+// 布尔值转整数
+fn bool_to_int(value: bool) int {
+    if (value) {
+        return 1;
+    }
+    return 0;
+}
+
+// 整数转布尔值
+fn int_to_bool(value: int) bool {
+    return value != 0;
+}
+
+// ============================================================================
+// 字符转换
+// ============================================================================
+
+// 字符转整数（ASCII码）
+fn char_to_int(c: char) int {
+    return c as int;
+}
+
+// 整数转字符（ASCII码）
+fn int_to_char(value: int) char {
+    // 确保值在有效ASCII范围内
+    if (value >= 0 && value <= 127) {
+        return value as char;
+    }
+    return '\0';  // 返回空字符作为默认值
+}
+
+// ============================================================================
+// 进制转换
+// ============================================================================
+
+// 整数转二进制字符串
+fn to_binary(value: int) string {
+    if (value == 0) {
+        return "0b0";
+    }
+    
+    var result = "";
+    var temp = value;
+    var binary_str = "";
+    
+    // 处理负数
+    var is_negative = false;
+    if (temp < 0) {
+        is_negative = true;
+        temp = -temp;
+    }
+    
+    // 转换为二进制
+    while (temp > 0) {
+        if (temp % 2 == 0) {
+            binary_str = "0" + binary_str;
+        } else {
+            binary_str = "1" + binary_str;
+        }
+        temp = temp / 2;
+    }
+    
+    if (is_negative) {
+        return "-0b" + binary_str;
+    }
+    return "0b" + binary_str;
+}
+
+// 整数转八进制字符串
+fn to_octal(value: int) string {
+    if (value == 0) {
+        return "0o0";
+    }
+    
+    var result = "";
+    var temp = value;
+    var octal_str = "";
+    
+    // 处理负数
+    var is_negative = false;
+    if (temp < 0) {
+        is_negative = true;
+        temp = -temp;
+    }
+    
+    // 转换为八进制
+    while (temp > 0) {
+        octal_str = (temp % 8) + octal_str;
+        temp = temp / 8;
+    }
+    
+    if (is_negative) {
+        return "-0o" + octal_str;
+    }
+    return "0o" + octal_str;
+}
+
+// 整数转十六进制字符串
+fn to_hex(value: int) string {
+    if (value == 0) {
+        return "0x0";
+    }
+    
+    var result = "";
+    var temp = value;
+    var hex_str = "";
+    
+    // 处理负数
+    var is_negative = false;
+    if (temp < 0) {
+        is_negative = true;
+        temp = -temp;
+    }
+    
+    // 转换为十六进制
+    while (temp > 0) {
+        let remainder = temp % 16;
+        let digit = if (remainder < 10) {
+            (remainder + '0') as char
+        } else {
+            ((remainder - 10) + 'a') as char
+        };
+        hex_str = digit + hex_str;
+        temp = temp / 16;
+    }
+    
+    if (is_negative) {
+        return "-0x" + hex_str;
+    }
+    return "0x" + hex_str;
+}
+
+// 二进制字符串转整数
+fn from_binary(s: string) Result<int, Error> {
+    // 检查前缀
+    if (!s.starts_with("0b") && !s.starts_with("0B")) {
+        return Err(Error::new("二进制字符串必须以0b或0B开头"));
+    }
+    
+    let len = s.len();
+    if (len <= 2) {
+        return Err(Error::new("无效的二进制字符串"));
+    }
+    
+    var result = 0;
+    var i = 2;  // 跳过"0b"前缀
+    
+    // 处理负数
+    var is_negative = false;
+    if (s[0] == '-') {
+        is_negative = true;
+        i = 3;  // 跳过"-0b"前缀
+    }
+    
+    while (i < len) {
+        let c = s[i];
+        if (c == '0') {
+            result = result * 2;
+        } else if (c == '1') {
+            result = result * 2 + 1;
+        } else {
+            return Err(Error::new("包含无效的二进制字符"));
+        }
+        i = i + 1;
+    }
+    
+    if (is_negative) {
+        return Ok(-result);
+    }
+    return Ok(result);
+}
+
+// 八进制字符串转整数
+fn from_octal(s: string) Result<int, Error> {
+    // 检查前缀
+    if (!s.starts_with("0o") && !s.starts_with("0O")) {
+        return Err(Error::new("八进制字符串必须以0o或0O开头"));
+    }
+    
+    let len = s.len();
+    if (len <= 2) {
+        return Err(Error::new("无效的八进制字符串"));
+    }
+    
+    var result = 0;
+    var i = 2;  // 跳过"0o"前缀
+    
+    // 处理负数
+    var is_negative = false;
+    if (s[0] == '-') {
+        is_negative = true;
+        i = 3;  // 跳过"-0o"前缀
+    }
+    
+    while (i < len) {
+        let c = s[i];
+        if (c >= '0' && c <= '7') {
+            result = result * 8 + (c - '0');
+        } else {
+            return Err(Error::new("包含无效的八进制字符"));
+        }
+        i = i + 1;
+    }
+    
+    if (is_negative) {
+        return Ok(-result);
+    }
+    return Ok(result);
+}
+
+// 十六进制字符串转整数
+fn from_hex(s: string) Result<int, Error> {
+    // 检查前缀
+    if (!s.starts_with("0x") && !s.starts_with("0X")) {
+        return Err(Error::new("十六进制字符串必须以0x或0X开头"));
+    }
+    
+    let len = s.len();
+    if (len <= 2) {
+        return Err(Error::new("无效的十六进制字符串"));
+    }
+    
+    var result = 0;
+    var i = 2;  // 跳过"0x"前缀
+    
+    // 处理负数
+    var is_negative = false;
+    if (s[0] == '-') {
+        is_negative = true;
+        i = 3;  // 跳过"-0x"前缀
+    }
+    
+    while (i < len) {
+        let c = s[i];
+        var digit = 0;
+        
+        if (c >= '0' && c <= '9') {
+            digit = c - '0';
+        } else if (c >= 'a' && c <= 'f') {
+            digit = c - 'a' + 10;
+        } else if (c >= 'A' && c <= 'F') {
+            digit = c - 'A' + 10;
+        } else {
+            return Err(Error::new("包含无效的十六进制字符"));
+        }
+        
+        result = result * 16 + digit;
+        i = i + 1;
+    }
+    
+    if (is_negative) {
+        return Ok(-result);
+    }
+    return Ok(result);
+}

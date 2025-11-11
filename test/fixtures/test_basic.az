@@ -1,0 +1,6 @@
+fn main() int {
+    println("Hello, AZ!");
+    let x = 10;
+    println("x = " + x);
+    return 0;
+}

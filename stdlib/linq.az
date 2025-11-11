@@ -1,0 +1,519 @@
+// std.linq - LINQ查询模块
+// 提供类似LINQ的函数式查询操作
+module std.linq;
+
+import std.collections.{Vec, HashMap, HashSet};
+import std.error.{Option};
+import std.mem;
+import std.string;
+
+// ============================================================================
+// LINQ查询相关类型定义
+// ============================================================================
+
+// 查询接口
+interface Queryable<T> {
+    fn filter(self: *Self, predicate: fn(T) bool) Queryable<T>;
+    fn map<U>(self: *Self, mapper: fn(T) U) Queryable<U>;
+    fn flat_map<U>(self: *Self, mapper: fn(T) Queryable<U>) Queryable<U>;
+    fn take(self: *Self, count: int) Queryable<T>;
+    fn skip(self: *Self, count: int) Queryable<T>;
+    fn distinct(self: *Self) Queryable<T>;
+    fn sort(self: *Self, comparer: fn(T, T) int) Queryable<T>;
+    fn to_list(self: *Self) Vec<T>;
+    fn to_set(self: *Self) HashSet<T>;
+    fn count(self: *Self) int;
+    fn first(self: *Self) Option<T>;
+    fn last(self: *Self) Option<T>;
+    fn any(self: *Self, predicate: fn(T) bool) bool;
+    fn all(self: *Self, predicate: fn(T) bool) bool;
+    fn sum<U>(self: *Self, selector: fn(T) U) U; // 需要数字类型
+    fn average<U>(self: *Self, selector: fn(T) U) float; // 需要数字类型
+    fn min<U>(self: *Self, selector: fn(T) U) Option<U>; // 需要可比较类型
+    fn max<U>(self: *Self, selector: fn(T) U) Option<U>; // 需要可比较类型
+}
+
+// 查询构建器
+struct QueryBuilder<T> {
+    source: Vec<T>,
+    operations: Vec<fn(Vec<T>) Vec<T>>, // 操作链
+}
+
+// ============================================================================
+// 查询构建器实现
+// ============================================================================
+
+// 创建查询构建器
+fn from<T>(source: Vec<T>) QueryBuilder<T> {
+    return QueryBuilder<T> {
+        source: source,
+        operations: Vec.new(),
+    };
+}
+
+// 创建空查询构建器
+fn empty<T>() QueryBuilder<T> {
+    return QueryBuilder<T> {
+        source: Vec.new(),
+        operations: Vec.new(),
+    };
+}
+
+// 创建包含单个元素的查询构建器
+fn single<T>(value: T) QueryBuilder<T> {
+    let mut vec = Vec.new();
+    vec.push(value);
+    return QueryBuilder<T> {
+        source: vec,
+        operations: Vec.new(),
+    };
+}
+
+// 创建范围查询构建器
+fn range(start: int, count: int) QueryBuilder<int> {
+    let mut vec = Vec.new();
+    for (var i = 0; i < count; i = i + 1) {
+        vec.push(start + i);
+    }
+    return QueryBuilder<int> {
+        source: vec,
+        operations: Vec.new(),
+    };
+}
+
+// 创建重复值查询构建器
+fn repeat<T>(value: T, count: int) QueryBuilder<T> {
+    let mut vec = Vec.new();
+    for (var i = 0; i < count; i = i + 1) {
+        vec.push(value);
+    }
+    return QueryBuilder<T> {
+        source: vec,
+        operations: Vec.new(),
+    };
+}
+
+// ============================================================================
+// 查询操作实现
+// ============================================================================
+
+// 过滤操作
+fn (self: *QueryBuilder<T>) filter(predicate: fn(T) bool) QueryBuilder<T> {
+    let operation = fn(source: Vec<T>) Vec<T> {
+        let mut result = Vec.new();
+        for (source) |item| {
+            if (predicate(item)) {
+                result.push(item);
+            }
+        }
+        return result;
+    };
+    
+    let mut new_operations = self.operations.clone();
+    new_operations.push(operation);
+    
+    return QueryBuilder<T> {
+        source: self.source,
+        operations: new_operations,
+    };
+}
+
+// 映射操作
+fn (self: *QueryBuilder<T>) map<U>(mapper: fn(T) U) QueryBuilder<U> {
+    // 执行当前操作链以获取实际数据
+    let data = self.execute();
+    
+    let operation = fn(source: Vec<U>) Vec<U> {
+        let mut result = Vec.new();
+        for (source) |item| {
+            result.push(mapper(item));
+        }
+        return result;
+    };
+    
+    let mut new_operations = Vec.new();
+    new_operations.push(operation);
+    
+    return QueryBuilder<U> {
+        source: data as Vec<T> as Vec<U>, // 类型转换（实际实现中需要更安全的方式）
+        operations: new_operations,
+    };
+}
+
+// 扁平映射操作
+fn (self: *QueryBuilder<T>) flat_map<U>(mapper: fn(T) QueryBuilder<U>) QueryBuilder<U> {
+    // 执行当前操作链以获取实际数据
+    let data = self.execute();
+    
+    let operation = fn(source: Vec<U>) Vec<U> {
+        let mut result = Vec.new();
+        for (source as Vec<T>) |item| {
+            let query = mapper(item);
+            let items = query.to_list();
+            for (items) |sub_item| {
+                result.push(sub_item);
+            }
+        }
+        return result;
+    };
+    
+    let mut new_operations = Vec.new();
+    new_operations.push(operation);
+    
+    return QueryBuilder<U> {
+        source: Vec.new(), // 扁平化后的数据
+        operations: new_operations,
+    };
+}
+
+// 取前N个元素
+fn (self: *QueryBuilder<T>) take(count: int) QueryBuilder<T> {
+    let operation = fn(source: Vec<T>) Vec<T> {
+        let mut result = Vec.new();
+        let take_count = if (count < source.len()) { count } else { source.len() };
+        for (var i = 0; i < take_count; i = i + 1) {
+            result.push(source.get(i));
+        }
+        return result;
+    };
+    
+    let mut new_operations = self.operations.clone();
+    new_operations.push(operation);
+    
+    return QueryBuilder<T> {
+        source: self.source,
+        operations: new_operations,
+    };
+}
+
+// 跳过前N个元素
+fn (self: *QueryBuilder<T>) skip(count: int) QueryBuilder<T> {
+    let operation = fn(source: Vec<T>) Vec<T> {
+        let mut result = Vec.new();
+        let skip_count = if (count < source.len()) { count } else { source.len() };
+        for (var i = skip_count; i < source.len(); i = i + 1) {
+            result.push(source.get(i));
+        }
+        return result;
+    };
+    
+    let mut new_operations = self.operations.clone();
+    new_operations.push(operation);
+    
+    return QueryBuilder<T> {
+        source: self.source,
+        operations: new_operations,
+    };
+}
+
+// 去重操作
+fn (self: *QueryBuilder<T>) distinct() QueryBuilder<T> {
+    let operation = fn(source: Vec<T>) Vec<T> {
+        let mut result = Vec.new();
+        let mut seen = HashSet.new();
+        for (source) |item| {
+            if (!seen.contains(item)) {
+                seen.insert(item);
+                result.push(item);
+            }
+        }
+        return result;
+    };
+    
+    let mut new_operations = self.operations.clone();
+    new_operations.push(operation);
+    
+    return QueryBuilder<T> {
+        source: self.source,
+        operations: new_operations,
+    };
+}
+
+// 排序操作
+fn (self: *QueryBuilder<T>) sort(comparer: fn(T, T) int) QueryBuilder<T> {
+    let operation = fn(source: Vec<T>) Vec<T> {
+        // 简单的冒泡排序实现
+        let mut result = source.clone();
+        let len = result.len();
+        for (var i = 0; i < len - 1; i = i + 1) {
+            for (var j = 0; j < len - i - 1; j = j + 1) {
+                let a = result.get(j);
+                let b = result.get(j + 1);
+                if (comparer(a, b) > 0) {
+                    result.set(j, b);
+                    result.set(j + 1, a);
+                }
+            }
+        }
+        return result;
+    };
+    
+    let mut new_operations = self.operations.clone();
+    new_operations.push(operation);
+    
+    return QueryBuilder<T> {
+        source: self.source,
+        operations: new_operations,
+    };
+}
+
+// ============================================================================
+// 终结操作实现
+// ============================================================================
+
+// 执行所有操作
+fn (self: *QueryBuilder<T>) execute() Vec<T> {
+    let mut result = self.source.clone();
+    
+    for (self.operations) |operation| {
+        result = operation(result);
+    }
+    
+    return result;
+}
+
+// 转换为列表
+fn (self: *QueryBuilder<T>) to_list() Vec<T> {
+    return self.execute();
+}
+
+// 转换为集合
+fn (self: *QueryBuilder<T>) to_set() HashSet<T> {
+    let list = self.execute();
+    let mut set = HashSet.new();
+    for (list) |item| {
+        set.insert(item);
+    }
+    return set;
+}
+
+// 计算元素数量
+fn (self: *QueryBuilder<T>) count() int {
+    return self.execute().len();
+}
+
+// 获取第一个元素
+fn (self: *QueryBuilder<T>) first() Option<T> {
+    let list = self.execute();
+    if (list.is_empty()) {
+        return Option.None;
+    }
+    return Option.Some(list.get(0));
+}
+
+// 获取最后一个元素
+fn (self: *QueryBuilder<T>) last() Option<T> {
+    let list = self.execute();
+    if (list.is_empty()) {
+        return Option.None;
+    }
+    return Option.Some(list.get(list.len() - 1));
+}
+
+// 检查是否存在满足条件的元素
+fn (self: *QueryBuilder<T>) any(predicate: fn(T) bool) bool {
+    let list = self.execute();
+    for (list) |item| {
+        if (predicate(item)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// 检查是否所有元素都满足条件
+fn (self: *QueryBuilder<T>) all(predicate: fn(T) bool) bool {
+    let list = self.execute();
+    for (list) |item| {
+        if (!predicate(item)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// 求和
+fn (self: *QueryBuilder<T>) sum<U>(selector: fn(T) U) U {
+    let list = self.execute();
+    let mut total = 0 as U;
+    for (list) |item| {
+        total = total + selector(item);
+    }
+    return total;
+}
+
+// 求平均值
+fn (self: *QueryBuilder<T>) average<U>(selector: fn(T) U) float {
+    let list = self.execute();
+    if (list.is_empty()) {
+        return 0.0;
+    }
+    
+    let mut total = 0 as U;
+    for (list) |item| {
+        total = total + selector(item);
+    }
+    
+    return (total as float) / (list.len() as float);
+}
+
+// 求最小值
+fn (self: *QueryBuilder<T>) min<U>(selector: fn(T) U) Option<U> {
+    let list = self.execute();
+    if (list.is_empty()) {
+        return Option.None;
+    }
+    
+    let mut min_value = selector(list.get(0));
+    for (var i = 1; i < list.len(); i = i + 1) {
+        let value = selector(list.get(i));
+        if (value < min_value) {
+            min_value = value;
+        }
+    }
+    
+    return Option.Some(min_value);
+}
+
+// 求最大值
+fn (self: *QueryBuilder<T>) max<U>(selector: fn(T) U) Option<U> {
+    let list = self.execute();
+    if (list.is_empty()) {
+        return Option.None;
+    }
+    
+    let mut max_value = selector(list.get(0));
+    for (var i = 1; i < list.len(); i = i + 1) {
+        let value = selector(list.get(i));
+        if (value > max_value) {
+            max_value = value;
+        }
+    }
+    
+    return Option.Some(max_value);
+}
+
+// 分组操作
+fn (self: *QueryBuilder<T>) group_by<K>(key_selector: fn(T) K) HashMap<K, Vec<T>> {
+    let list = self.execute();
+    let mut groups = HashMap.new();
+    
+    for (list) |item| {
+        let key = key_selector(item);
+        let group = groups.get_mut(key);
+        if (group.is_none()) {
+            groups.insert(key, Vec.new());
+            group = groups.get_mut(key);
+        }
+        group.unwrap().push(item);
+    }
+    
+    return groups;
+}
+
+// 连接操作
+fn (self: *QueryBuilder<T>) join<U, K, R>(
+    inner: QueryBuilder<U>,
+    outer_key_selector: fn(T) K,
+    inner_key_selector: fn(U) K,
+    result_selector: fn(T, U) R
+) QueryBuilder<R> {
+    let outer_list = self.execute();
+    let inner_list = inner.execute();
+    let mut result = Vec.new();
+    
+    for (outer_list) |outer_item| {
+        let outer_key = outer_key_selector(outer_item);
+        for (inner_list) |inner_item| {
+            let inner_key = inner_key_selector(inner_item);
+            if (outer_key == inner_key) {
+                result.push(result_selector(outer_item, inner_item));
+            }
+        }
+    }
+    
+    return QueryBuilder<R> {
+        source: result,
+        operations: Vec.new(),
+    };
+}
+
+// 左连接操作
+fn (self: *QueryBuilder<T>) left_join<U, K, R>(
+    inner: QueryBuilder<U>,
+    outer_key_selector: fn(T) K,
+    inner_key_selector: fn(U) K,
+    result_selector: fn(T, Option<U>) R
+) QueryBuilder<R> {
+    let outer_list = self.execute();
+    let inner_list = inner.execute();
+    let mut result = Vec.new();
+    
+    for (outer_list) |outer_item| {
+        let outer_key = outer_key_selector(outer_item);
+        let mut found = false;
+        
+        for (inner_list) |inner_item| {
+            let inner_key = inner_key_selector(inner_item);
+            if (outer_key == inner_key) {
+                result.push(result_selector(outer_item, Option.Some(inner_item)));
+                found = true;
+                break;
+            }
+        }
+        
+        if (!found) {
+            result.push(result_selector(outer_item, Option.None));
+        }
+    }
+    
+    return QueryBuilder<R> {
+        source: result,
+        operations: Vec.new(),
+    };
+}
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+// 创建默认比较器
+fn default_comparer<T>(a: T, b: T) int {
+    if (a < b) {
+        return -1;
+    } else if (a > b) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+// 创建数字比较器
+fn numeric_comparer<T>(a: T, b: T) int {
+    if (a < b) {
+        return -1;
+    } else if (a > b) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+// 创建字符串比较器
+fn string_comparer(a: string, b: string) int {
+    // TODO: 实现字符串比较逻辑
+    if (a < b) {
+        return -1;
+    } else if (a > b) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+// 创建反向比较器
+fn reverse_comparer<T>(comparer: fn(T, T) int) fn(T, T) int {
+    return fn(a: T, b: T) int {
+        return -comparer(a, b);
+    };
+}

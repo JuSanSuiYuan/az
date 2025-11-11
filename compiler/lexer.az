@@ -1,0 +1,210 @@
+// AZ编译器词法分析器
+
+import compiler.token;
+import compiler.error;
+
+struct Lexer {
+    source: string,
+    filename: string,
+    current: int,
+    line: int,
+    column: int,
+    tokens: []Token
+}
+
+// 创建词法分析器
+fn new_lexer(source: string, filename: string) Lexer {
+    return Lexer {
+        source: source,
+        filename: filename,
+        current: 0,
+        line: 1,
+        column: 1,
+        tokens: []
+    };
+}
+
+// 词法分析主函数
+fn tokenize(lexer: *Lexer) Result<[]Token> {
+    while (!is_at_end(lexer)) {
+        let result = scan_token(lexer);
+        if (result is Err) {
+            return result;
+        }
+    }
+    
+    // 添加EOF token
+    add_token(lexer, TokenType.Eof, "");
+    return Result.Ok(lexer.tokens);
+}
+
+// 扫描单个token
+fn scan_token(lexer: *Lexer) Result<void> {
+    skip_whitespace(lexer);
+    
+    if (is_at_end(lexer)) {
+        return Result.Ok(void);
+    }
+    
+    let c = advance(lexer);
+    
+    // 标识符和关键字
+    if (is_alpha(c)) {
+        return scan_identifier(lexer);
+    }
+    
+    // 数字字面量
+    if (is_digit(c)) {
+        return scan_number(lexer);
+    }
+    
+    // 字符串字面量
+    if (c == '"') {
+        return scan_string(lexer);
+    }
+    
+    // 运算符和分隔符
+    match c {
+        '+' => add_token(lexer, TokenType.Plus, "+"),
+        '-' => {
+            if (match_char(lexer, '>')) {
+                add_token(lexer, TokenType.Arrow, "->");
+            } else {
+                add_token(lexer, TokenType.Minus, "-");
+            }
+        },
+        '*' => add_token(lexer, TokenType.Star, "*"),
+        '/' => {
+            if (match_char(lexer, '/')) {
+                // 单行注释
+                skip_line_comment(lexer);
+            } else {
+                add_token(lexer, TokenType.Slash, "/");
+            }
+        },
+        '%' => add_token(lexer, TokenType.Percent, "%"),
+        '=' => {
+            if (match_char(lexer, '=')) {
+                add_token(lexer, TokenType.EqualEqual, "==");
+            } else {
+                add_token(lexer, TokenType.Equal, "=");
+            }
+        },
+        '!' => {
+            if (match_char(lexer, '=')) {
+                add_token(lexer, TokenType.BangEqual, "!=");
+            } else {
+                add_token(lexer, TokenType.Bang, "!");
+            }
+        },
+        '<' => {
+            if (match_char(lexer, '=')) {
+                add_token(lexer, TokenType.LessEqual, "<=");
+            } else {
+                add_token(lexer, TokenType.Less, "<");
+            }
+        },
+        '>' => {
+            if (match_char(lexer, '=')) {
+                add_token(lexer, TokenType.GreaterEqual, ">=");
+            } else {
+                add_token(lexer, TokenType.Greater, ">");
+            }
+        },
+        '&' => {
+            if (match_char(lexer, '&')) {
+                add_token(lexer, TokenType.AmpAmp, "&&");
+            }
+        },
+        '|' => {
+            if (match_char(lexer, '|')) {
+                add_token(lexer, TokenType.PipePipe, "||");
+            } else {
+                add_token(lexer, TokenType.Pipe, "|");
+            }
+        },
+        '(' => add_token(lexer, TokenType.LeftParen, "("),
+        ')' => add_token(lexer, TokenType.RightParen, ")"),
+        '{' => add_token(lexer, TokenType.LeftBrace, "{"),
+        '}' => add_token(lexer, TokenType.RightBrace, "}"),
+        '[' => add_token(lexer, TokenType.LeftBracket, "["),
+        ']' => add_token(lexer, TokenType.RightBracket, "]"),
+        ',' => add_token(lexer, TokenType.Comma, ","),
+        ';' => add_token(lexer, TokenType.Semicolon, ";"),
+        ':' => add_token(lexer, TokenType.Colon, ":"),
+        '.' => add_token(lexer, TokenType.Dot, "."),
+        _ => {
+            return Result.Err(make_error(
+                ErrorKind.LexerError,
+                "未知字符: " + c,
+                lexer.line,
+                lexer.column,
+                lexer.filename
+            ));
+        }
+    }
+    
+    return Result.Ok(void);
+}
+
+// 辅助函数
+fn is_at_end(lexer: *Lexer) bool {
+    return lexer.current >= lexer.source.length;
+}
+
+fn advance(lexer: *Lexer) char {
+    let c = lexer.source[lexer.current];
+    lexer.current += 1;
+    lexer.column += 1;
+    return c;
+}
+
+fn peek(lexer: *Lexer) char {
+    if (is_at_end(lexer)) return '\0';
+    return lexer.source[lexer.current];
+}
+
+fn match_char(lexer: *Lexer, expected: char) bool {
+    if (is_at_end(lexer)) return false;
+    if (lexer.source[lexer.current] != expected) return false;
+    advance(lexer);
+    return true;
+}
+
+fn skip_whitespace(lexer: *Lexer) void {
+    while (!is_at_end(lexer)) {
+        let c = peek(lexer);
+        match c {
+            ' ', '\r', '\t' => { advance(lexer); },
+            '\n' => {
+                lexer.line += 1;
+                lexer.column = 1;
+                advance(lexer);
+            },
+            _ => return
+        }
+    }
+}
+
+fn skip_line_comment(lexer: *Lexer) void {
+    while (!is_at_end(lexer) && peek(lexer) != '\n') {
+        advance(lexer);
+    }
+}
+
+fn is_alpha(c: char) bool {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+}
+
+fn is_digit(c: char) bool {
+    return c >= '0' && c <= '9';
+}
+
+fn is_alnum(c: char) bool {
+    return is_alpha(c) || is_digit(c);
+}
+
+fn add_token(lexer: *Lexer, type: TokenType, lexeme: string) void {
+    let token = make_token(type, lexeme, lexer.line, lexer.column);
+    lexer.tokens.append(token);
+}

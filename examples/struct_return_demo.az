@@ -1,0 +1,22 @@
+// Struct Return Demo
+
+import std.io;
+
+struct Point {
+    x: int,
+    y: int,
+}
+
+fn new_point(x: int, y: int) Point {
+    return Point{x: x, y: y};
+}
+
+fn main() int {
+    let point = new_point(3, 4);
+    println("Point coordinates: (");
+    println(point.x);
+    print(", ");
+    println(point.y);
+    println(")");
+    return 0;
+}

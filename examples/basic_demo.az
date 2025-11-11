@@ -1,0 +1,56 @@
+// 基础AZ语言特性演示程序
+
+import std.io;
+
+// 函数定义
+fn add(a: int, b: int) int {
+    return a + b;
+}
+
+// 结构体定义
+struct Point {
+    x: int,
+    y: int,
+}
+
+// 结构体方法
+fn new_point(x: int, y: int) Point {
+    return Point{x: x, y: y};
+}
+
+fn point_distance(p: Point) int {
+    return p.x * p.x + p.y * p.y;
+}
+
+fn main() int {
+    println("=== AZ语言基础演示 ===");
+    
+    // 基本运算
+    let sum = add(3, 5);
+    println("3 + 5 = {}", sum);
+    
+    // 结构体使用
+    let point = new_point(3, 4);
+    println("点坐标: ({}, {})", point.x, point.y);
+    
+    // 方法调用
+    let distance = point_distance(point);
+    println("点到原点的距离平方: {}", distance);
+    
+    // 控制流
+    var i = 1;
+    println("计数到3:");
+    while (i <= 3) {
+        println("  {}", i);
+        i = i + 1;
+    }
+    
+    // 条件语句
+    if (distance > 20) {
+        println("这是一个距离原点较远的点");
+    } else {
+        println("这是一个距离原点较近的点");
+    }
+    
+    return 0;
+}

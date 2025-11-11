@@ -1,0 +1,81 @@
+// std.actor - Actor模型主模块
+// 提供统一的Actor模型接口
+module std.actor;
+
+// 导入Actor核心模块
+import std.actor_runtime.{ActorSystem, ActorSystemConfig, new_system, default_config, start_system, stop_system};
+import std.actor.{ActorId, ActorIdType, ActorRef, ActorState, Message, Actor, new_actor_id, new_numeric_actor_id, random_actor_id, uuid_actor_id};
+import std.actor_messaging.{send_message};
+import std.actor_lifecycle.{activate_actor, deactivate_actor};
+import std.actor_state.{ActorError};
+
+// 重新导出核心类型和函数
+pub use std.actor_runtime.{ActorSystem, ActorSystemConfig, new_system, default_config, start_system, stop_system};
+pub use std.actor.{ActorId, ActorIdType, ActorRef, ActorState, Message, Actor, new_actor_id, new_numeric_actor_id, random_actor_id, uuid_actor_id};
+pub use std.actor_messaging.{send_message};
+pub use std.actor_lifecycle.{activate_actor, deactivate_actor};
+pub use std.actor_state.{ActorError};
+
+// ============================================================================
+// Actor宏和便利函数
+// ============================================================================
+
+/// 创建Actor系统便利函数
+pub fn create_system() ActorSystem {
+    let config = default_config();
+    return new_system(config);
+}
+
+/// 创建自定义配置的Actor系统
+pub fn create_system_with_config(activation_timeout_ms: int, idle_timeout_ms: int, max_concurrent_actors: int) ActorSystem {
+    let config = ActorSystemConfig {
+        activation_timeout_ms: activation_timeout_ms,
+        idle_timeout_ms: idle_timeout_ms,
+        max_concurrent_actors: max_concurrent_actors
+    };
+    return new_system(config);
+}
+
+/// 启动Actor系统
+pub fn start(system: *ActorSystem) Result<void, ActorError> {
+    let result = start_system(system);
+    if (result.is_err()) {
+        return Result.Err(ActorError.new("启动Actor系统失败"));
+    }
+    return Result.Ok(void);
+}
+
+/// 停止Actor系统
+pub fn stop(system: *ActorSystem) Result<void, ActorError> {
+    let result = stop_system(system);
+    if (result.is_err()) {
+        return Result.Err(ActorError.new("停止Actor系统失败"));
+    }
+    return Result.Ok(void);
+}
+
+/// 创建Actor引用
+pub fn actor_of<T: Actor>(system: *ActorSystem, actor_id: ActorId) ActorRef<T> {
+    return std.actor.actor_of(system, actor_id);
+}
+
+/// 发送消息给Actor
+pub fn send<T: Actor>(system: *ActorSystem, actor_ref: ActorRef<T>, message: *Message) Result<void, ActorError> {
+    let result = send_message(system, actor_ref, message);
+    if (result.is_err()) {
+        return Result.Err(ActorError.new("发送消息失败"));
+    }
+    return Result.Ok(void);
+}
+
+/// 激活Actor
+pub fn activate<T: Actor>(system: *ActorSystem, actor_id: ActorId) Result<*T, ActorError> {
+    // TODO: 实现激活逻辑
+    return Result.Err(ActorError.new("未实现"));
+}
+
+/// 停用Actor
+pub fn deactivate<T: Actor>(system: *ActorSystem, actor_id: ActorId) Result<void, ActorError> {
+    // TODO: 实现停用逻辑
+    return Result.Ok(void);
+}

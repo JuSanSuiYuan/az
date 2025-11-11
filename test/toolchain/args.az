@@ -1,0 +1,14 @@
+// 带命令行参数的测试程序
+
+import std.io;
+import std.string;
+
+fn main(argc: int, argv: []string) int {
+    println("参数数量: {}", argc);
+    
+    for (var i = 0; i < argc; i = i + 1) {
+        println("参数 {}: {}", i, argv[i]);
+    }
+    
+    return 0;
+}

@@ -1,0 +1,133 @@
+// 标准库综合示例 - 文本处理工具
+
+fn print_separator() void {
+    let sep = az_string_repeat("=", 50);
+    println(sep);
+}
+
+fn process_text(text: string) string {
+    // 1. 去除空白
+    let trimmed = az_string_trim(text);
+    
+    // 2. 转大写
+    let upper = az_string_to_upper(trimmed);
+    
+    // 3. 替换某些词
+    let replaced = az_string_replace(upper, "HELLO", "GREETINGS");
+    
+    return replaced;
+}
+
+fn analyze_text(text: string) void {
+    println("文本分析:");
+    
+    // 长度
+    let len = az_string_length(text);
+    println("  长度: " + az_int_to_string(len) + " 字符");
+    
+    // 查找关键词
+    if (az_string_contains(text, "AZ")) {
+        let pos = az_string_find(text, "AZ");
+        println("  包含'AZ'，位置: " + az_int_to_string(pos));
+    }
+    
+    // 检查开头和结尾
+    if (az_string_starts_with(text, "GREETINGS")) {
+        println("  以'GREETINGS'开头");
+    }
+}
+
+fn save_report(filename: string, content: string) int {
+    // 创建报告头部
+    let header = "=== 文本处理报告 ===\n\n";
+    let full_content = az_string_concat(header, content);
+    
+    // 添加时间戳
+    let timestamp = "\n\n生成时间: ";
+    let time_str = az_int_to_string(az_time_now());
+    full_content = az_string_concat(full_content, timestamp);
+    full_content = az_string_concat(full_content, time_str);
+    
+    // 写入文件
+    let result = az_write_file(filename, full_content);
+    return result;
+}
+
+fn main() int {
+    print_separator();
+    println("AZ标准库综合示例 - 文本处理工具");
+    print_separator();
+    println("");
+    
+    // 1. 准备测试文本
+    println("步骤 1: 准备测试文本");
+    let input_text = "  Hello, AZ Language!  \n  Welcome to the future of programming.  ";
+    println("原始文本:");
+    println(input_text);
+    println("");
+    
+    // 2. 处理文本
+    println("步骤 2: 处理文本");
+    let processed = process_text(input_text);
+    println("处理后:");
+    println(processed);
+    println("");
+    
+    // 3. 分析文本
+    println("步骤 3: 分析文本");
+    analyze_text(processed);
+    println("");
+    
+    // 4. 数学计算示例
+    println("步骤 4: 数学计算");
+    let num1 = 16.0;
+    let num2 = 4.0;
+    let sqrt_result = az_sqrt(num1);
+    let pow_result = az_pow(num2, 2.0);
+    println("  sqrt(16) = " + az_float_to_string(sqrt_result));
+    println("  4^2 = " + az_float_to_string(pow_result));
+    println("");
+    
+    // 5. 保存到文件
+    println("步骤 5: 保存报告");
+    let report = az_string_concat("处理结果:\n", processed);
+    report = az_string_concat(report, "\n\n数学计算:\n");
+    report = az_string_concat(report, "sqrt(16) = ");
+    report = az_string_concat(report, az_float_to_string(sqrt_result));
+    
+    let save_result = save_report("report.txt", report);
+    if (save_result == 0) {
+        println("  ✓ 报告已保存到: report.txt");
+    } else {
+        println("  ✗ 保存报告失败");
+        return 1;
+    }
+    println("");
+    
+    // 6. 验证文件
+    println("步骤 6: 验证文件");
+    if (az_file_exists("report.txt")) {
+        let size = az_file_size("report.txt");
+        println("  ✓ 文件存在");
+        println("  文件大小: " + az_int_to_string(size) + " 字节");
+        
+        // 读取并显示
+        let file_content = az_read_file("report.txt");
+        if (file_content != null) {
+            println("");
+            println("文件内容:");
+            print_separator();
+            println(file_content);
+            print_separator();
+        }
+    }
+    println("");
+    
+    // 7. 完成
+    print_separator();
+    println("✓ 所有步骤完成!");
+    println("生成的文件: report.txt");
+    print_separator();
+    
+    return 0;
+}

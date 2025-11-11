@@ -1,0 +1,420 @@
+#!/usr/bin/env python3
+"""
+az cl Compiler Driver
+完整的az cl编译器驱动程序
+"""
+
+import sys
+import os
+import subprocess
+import argparse
+import tempfile
+from pathlib import Path
+
+class AZCompilerDriver:
+    """AZ编译器驱动程序"""
+    
+    def __init__(self):
+        self.project_root = Path(__file__).parent.parent
+        self.bootstrap_dir = self.project_root / "bootstrap"
+        self.compiler_dir = self.project_root / "compiler"
+        self.runtime_dir = self.project_root / "runtime"
+        self.lib_dir = self.project_root / "lib"
+        
+    def compile(self, source_files, output_file=None, options=None):
+        """编译AZ源文件"""
+        if options is None:
+            options = {}
+            
+        print(f"🔨 编译AZ程序...")
+        
+        # 1. 使用C++编译器编译源文件
+        print("[1/4] 使用C++后端编译...")
+        llvm_ir = self.compile_with_cpp_backend(source_files, options)
+        if llvm_ir is None:
+            print("❌ C++编译失败")
+            return False
+        
+        # 2. 使用LLVM后端处理
+        print("[2/4] 使用LLVM后端处理...")
+        if not self.process_with_llvm_backend(llvm_ir, output_file or "a.out", options):
+            print("❌ LLVM后端处理失败")
+            return False
+        
+        # 3. 链接
+        print("[3/4] 链接...")
+        if not self.link(output_file or "a.out", options):
+            print("❌ 链接失败")
+            return False
+        
+        # 4. 完成
+        print("[4/4] 完成!")
+        print(f"✅ 编译成功: {output_file or 'a.out'}")
+        return True
+    
+    def compile_with_cpp_backend(self, source_files, options):
+        """使用C++后端编译"""
+        try:
+            # 构建C++编译器路径
+            cpp_compiler = self.project_root / "build" / "az_compiler"
+            if not cpp_compiler.exists():
+                print("❌ C++编译器未找到。请先构建它。")
+                print("运行: cd build && cmake .. && make")
+                return None
+            
+            # 创建临时目录存储中间文件
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                ir_file = temp_path / "output.ll"
+                
+                # 构建命令
+                cmd = [str(cpp_compiler)]
+                
+                # 添加选项
+                if options.get('verbose'):
+                    cmd.append('-v')
+                
+                if options.get('debug'):
+                    cmd.append('-g')
+                
+                # AOT编译选项
+                if options.get('aot'):
+                    cmd.append('--aot')
+                
+                # 链接器选项
+                if options.get('linker'):
+                    cmd.extend(['--linker', options.get('linker')])
+                
+                # 输出类型
+                cmd.extend(['-emit-llvm', '-o', str(ir_file)])
+                
+                # 添加源文件
+                cmd.extend(source_files)
+                
+                print(f"执行命令: {' '.join(cmd)}")
+                
+                # 执行编译
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True
+                )
+                
+                if result.returncode != 0:
+                    print("C++编译器输出:")
+                    if result.stdout:
+                        print(result.stdout)
+                    if result.stderr:
+                        print(result.stderr, file=sys.stderr)
+                    return None
+                
+                # 读取生成的LLVM IR
+                if ir_file.exists():
+                    with open(ir_file, 'r') as f:
+                        return f.read()
+                else:
+                    print("❌ LLVM IR文件未生成")
+                    return None
+                    
+        except Exception as e:
+            print(f"C++编译错误: {e}")
+            return None
+    
+    def process_with_llvm_backend(self, llvm_ir, output_file, options):
+        """使用LLVM后端处理"""
+        try:
+            # 创建临时目录存储中间文件
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                ir_file = temp_path / "input.ll"
+                obj_file = temp_path / "output.o"
+                
+                # 写入LLVM IR
+                with open(ir_file, 'w') as f:
+                    f.write(llvm_ir)
+                
+                # 使用lli或llc处理LLVM IR
+                opt_level = options.get('opt_level', 'O2')
+                
+                # 优化
+                opt_cmd = ['opt', f'-{opt_level}', str(ir_file), '-o', str(obj_file)]
+                print(f"执行优化命令: {' '.join(opt_cmd)}")
+                result = subprocess.run(opt_cmd, capture_output=True, text=True)
+                
+                if result.returncode != 0:
+                    print("LLVM opt输出:")
+                    if result.stdout:
+                        print(result.stdout)
+                    if result.stderr:
+                        print(result.stderr, file=sys.stderr)
+                    return False
+                
+                # 复制对象文件到输出位置
+                import shutil
+                shutil.copy2(obj_file, output_file + ".o")
+                
+                return True
+                    
+        except Exception as e:
+            print(f"LLVM后端错误: {e}")
+            return False
+    
+    def link(self, output_file, options):
+        """链接对象文件"""
+        try:
+            obj_file = output_file + ".o"
+            
+            # 检测链接器
+            linker_type = options.get('linker', 'auto')
+            if linker_type == 'auto':
+                linker = self.detect_linker()
+            else:
+                linker = linker_type
+            
+            if not linker:
+                print("❌ 未找到链接器 (lld, mold, gcc, clang, 或 cl)")
+                return False
+            
+            # 构建链接命令
+            if linker == "cl":  # MSVC
+                cmd = [
+                    linker,
+                    "/nologo",
+                    obj_file,
+                    f"/Fe{output_file}",
+                    "/link", "/SUBSYSTEM:CONSOLE"
+                ]
+            else:  # lld, mold, gcc, clang
+                cmd = [
+                    linker,
+                    obj_file,
+                    "-o", output_file
+                ]
+            
+            # 添加链接选项
+            if options.get('static_link'):
+                cmd.append('-static')
+            
+            if options.get('lto'):
+                cmd.append('-flto')
+            
+            if options.get('pie'):
+                cmd.append('-pie')
+            
+            if options.get('strip'):
+                cmd.append('-strip-all')
+            
+            print(f"执行链接命令: {' '.join(cmd)}")
+            
+            # 执行链接
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                print("链接器输出:")
+                if result.stdout:
+                    print(result.stdout)
+                if result.stderr:
+                    print(result.stderr, file=sys.stderr)
+                return False
+            
+            # 清理临时对象文件
+            if os.path.exists(obj_file):
+                os.remove(obj_file)
+            
+            return True
+            
+        except Exception as e:
+            print(f"链接错误: {e}")
+            return False
+    
+    def detect_linker(self):
+        """检测可用的链接器"""
+        # 优先检测mold
+        linkers = ["mold", "lld", "gcc", "clang", "cl"]
+        
+        for linker in linkers:
+            try:
+                result = subprocess.run(
+                    [linker, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    return linker
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+        
+        return None
+    
+    def run_jit(self, source_files, args=None, options=None):
+        """JIT运行AZ程序"""
+        if options is None:
+            options = {}
+            
+        print(f"🏃 使用JIT运行AZ程序...")
+        
+        try:
+            # 使用C++编译器JIT运行
+            cpp_compiler = self.project_root / "build" / "az_compiler"
+            if not cpp_compiler.exists():
+                print("❌ C++编译器未找到。请先构建它。")
+                return False
+            
+            # 构建命令
+            cmd = [str(cpp_compiler), '--jit']
+            
+            # 添加选项
+            if options.get('verbose'):
+                cmd.append('-v')
+            
+            if options.get('debug'):
+                cmd.append('-g')
+            
+            # 添加源文件
+            cmd.extend(source_files)
+            
+            # 添加程序参数
+            if args:
+                cmd.append('--')
+                cmd.extend(args)
+            
+            print(f"执行JIT命令: {' '.join(cmd)}")
+            
+            # 执行JIT运行
+            result = subprocess.run(cmd)
+            
+            return result.returncode == 0
+                    
+        except Exception as e:
+            print(f"JIT执行错误: {e}")
+            return False
+
+    def clean_cache(self, cache_dir=".az_cache"):
+        """清理编译缓存"""
+        cache_path = Path(cache_dir)
+        if cache_path.exists():
+            import shutil
+            try:
+                shutil.rmtree(cache_path)
+                print(f"✅ 清理缓存完成: {cache_dir}")
+                return True
+            except Exception as e:
+                print(f"❌ 清理缓存失败: {e}")
+                return False
+        else:
+            print(f"ℹ️  缓存目录不存在: {cache_dir}")
+            return True
+
+    def show_version(self):
+        """显示版本信息"""
+        print("az cl Compiler Driver v0.4.0")
+        print("Copyright (c) 2025 AZ Language Project")
+        print("基于LLVM和MLIR技术栈")
+
+def main():
+    """主函数"""
+    parser = argparse.ArgumentParser(
+        description="az cl编译器驱动程序 - 编译和运行AZ程序",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  az_cl hello.az                    # 编译hello.az到a.out
+  az_cl hello.az -o hello           # 编译hello.az到hello
+  az_cl --jit hello.az              # 使用JIT运行hello.az
+  az_cl --aot hello.az              # 使用AOT编译hello.az
+  az_cl --emit-llvm hello.az        # 输出LLVM IR
+  az_cl --emit-asm hello.az         # 输出汇编代码
+        """
+    )
+    
+    parser.add_argument('sources', nargs='*', help='源文件 (.az)')
+    parser.add_argument('-o', '--output', help='输出文件名')
+    parser.add_argument('-c', '--compile-only', action='store_true', 
+                       help='仅编译，不链接')
+    parser.add_argument('-g', '--debug', action='store_true', 
+                       help='生成调试信息')
+    parser.add_argument('-O', '--optimize', choices=['0', '1', '2', '3', 's', 'z'],
+                       help='优化级别')
+    parser.add_argument('-v', '--verbose', action='store_true', 
+                       help='详细输出')
+    parser.add_argument('--jit', action='store_true', 
+                       help='使用JIT编译器运行')
+    parser.add_argument('--aot', action='store_true', 
+                       help='使用AOT编译')
+    parser.add_argument('--emit-llvm', action='store_true', 
+                       help='输出LLVM IR')
+    parser.add_argument('--emit-asm', action='store_true', 
+                       help='输出汇编代码')
+    parser.add_argument('--target', help='目标三元组')
+    parser.add_argument('--static', action='store_true', 
+                       help='静态链接')
+    parser.add_argument('--lto', action='store_true', 
+                       help='启用LTO')
+    parser.add_argument('--pie', action='store_true', 
+                       help='生成PIE')
+    parser.add_argument('--strip', action='store_true', 
+                       help='去除符号表')
+    parser.add_argument('--linker', choices=['auto', 'lld', 'mold', 'gcc', 'clang', 'msvc'],
+                       default='auto', help='指定链接器类型')
+    parser.add_argument('--clean-cache', action='store_true',
+                       help='清理编译缓存')
+    parser.add_argument('--version', action='store_true',
+                       help='显示版本信息')
+    
+    args = parser.parse_args()
+    
+    # 显示版本信息
+    if args.version:
+        driver = AZCompilerDriver()
+        driver.show_version()
+        return 0
+    
+    # 清理缓存
+    if args.clean_cache:
+        driver = AZCompilerDriver()
+        return 0 if driver.clean_cache() else 1
+    
+    # 检查源文件
+    if not args.sources:
+        print("❌ 未指定源文件")
+    parser.print_help()
+    return 1
+    
+    for source in args.sources:
+        if not os.path.exists(source):
+            print(f"❌ 源文件不存在: {source}")
+            return 1
+    
+    # 构建选项
+    options = {
+        'verbose': args.verbose,
+        'debug': args.debug,
+        'opt_level': f'O{args.optimize}' if args.optimize else 'O2',
+        'target': args.target,
+        'static_link': args.static,
+        'lto': args.lto,
+        'pie': args.pie,
+        'strip': args.strip,
+        'emit_llvm': args.emit_llvm,
+        'emit_asm': args.emit_asm,
+        'aot': args.aot,
+        'linker': args.linker
+    }
+    
+    # 创建编译器驱动
+    driver = AZCompilerDriver()
+    
+    # JIT运行
+    if args.jit:
+        success = driver.run_jit(args.sources, sys.argv[sys.argv.index('--')+1:] 
+                                if '--' in sys.argv else [], options)
+        return 0 if success else 1
+    
+    # 编译
+    success = driver.compile(args.sources, args.output, options)
+    return 0 if success else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

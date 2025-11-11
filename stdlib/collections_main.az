@@ -1,0 +1,29 @@
+// std.collections - 集合类型模块（主文件）
+// 版本: v1.0.0
+// 日期: 2025-10-30
+
+module std.collections;
+
+// 重新导出所有集合类型
+pub use std.collections.vec.{Vec, new as vec_new, with_capacity as vec_with_capacity};
+pub use std.collections.hashmap.{HashMap, new as map_new, with_capacity as map_with_capacity};
+pub use std.collections.hashset.{HashSet, new as set_new, with_capacity as set_with_capacity};
+
+// ============================================================================
+// 便捷函数
+// ============================================================================
+
+/// 创建Vec
+pub fn vec<T>() Vec<T> {
+    return Vec<T>.new();
+}
+
+/// 创建HashMap
+pub fn map<K, V>() HashMap<K, V> {
+    return HashMap<K, V>.new();
+}
+
+/// 创建HashSet
+pub fn set<T>() HashSet<T> {
+    return HashSet<T>.new();
+}

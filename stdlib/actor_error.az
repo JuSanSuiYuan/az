@@ -1,0 +1,799 @@
+// std.actor.error - Actor错误处理和恢复模块
+// 提供Actor系统的错误处理和恢复机制
+module std.actor.error;
+
+import std.error.{Error, Result};
+import std.actor.{ActorId, ActorRef};
+import std.collections.{Vec, HashMap};
+import std.time;
+import std.string;
+import std.mem;
+
+// ============================================================================
+// Actor错误处理相关类型定义
+// ============================================================================
+
+// Actor错误类型
+enum ActorErrorType {
+    ActivationFailed,      // 激活失败
+    DeactivationFailed,    // 停用失败
+    MessageHandlingFailed, // 消息处理失败
+    StateRestoreFailed,    // 状态恢复失败
+    PersistenceFailed,     // 持久化失败
+    NetworkFailed,         // 网络通信失败
+    Timeout,               // 超时
+    ResourceExhausted,     // 资源耗尽
+    InvalidState,          // 无效状态
+    Unknown,               // 未知错误
+}
+
+// Actor错误信息
+struct ActorErrorInfo {
+    error_type: ActorErrorType,     // 错误类型
+    message: string,                // 错误消息
+    code: int,                      // 错误码
+    actor_id: ActorId,              // 相关Actor ID
+    timestamp: time.Time,           // 错误发生时间
+    stack_trace: string,            // 堆栈跟踪（如果可用）
+    context: HashMap<string, string>, // 错误上下文信息
+    retry_count: int,               // 重试次数
+    is_recoverable: bool,           // 是否可恢复
+}
+
+// 错误严重级别
+enum ErrorSeverity {
+    Low,       // 低严重性
+    Medium,    // 中等严重性
+    High,      // 高严重性
+    Critical,  // 关键严重性
+}
+
+// 错误处理策略
+enum ErrorHandlingStrategy {
+    Retry,              // 重试
+    RetryWithBackoff,   // 退避重试
+    Failover,           // 故障转移
+    RestartActor,       // 重启Actor
+    RestartSystem,      // 重启系统
+    Ignore,             // 忽略
+    Panic,              // 恐慌（终止程序）
+}
+
+// 错误恢复策略
+enum RecoveryStrategy {
+    None,                    // 无恢复
+    RestoreFromSnapshot,     // 从快照恢复
+    ReplayEvents,            // 重放事件
+    RecreateActor,           // 重新创建Actor
+    FailoverToReplica,       // 故障转移到副本
+    ManualRecovery,          // 手动恢复
+}
+
+// 错误处理配置
+struct ErrorHandlingConfig {
+    default_strategy: ErrorHandlingStrategy,  // 默认错误处理策略
+    max_retry_attempts: int,                  // 最大重试次数
+    retry_delay_ms: int,                      // 重试延迟（毫秒）
+    backoff_multiplier: float,                // 退避乘数
+    max_backoff_ms: int,                      // 最大退避时间（毫秒）
+    enable_circuit_breaker: bool,             // 是否启用熔断器
+    circuit_breaker_threshold: int,           // 熔断器阈值
+    circuit_breaker_timeout_ms: int,          // 熔断器超时时间（毫秒）
+    log_errors: bool,                         // 是否记录错误
+    alert_on_critical_errors: bool,           // 关键错误时是否告警
+}
+
+// 熔断器状态
+enum CircuitBreakerState {
+    Closed,    // 关闭（正常）
+    Open,      // 打开（熔断）
+    HalfOpen,  // 半开（测试）
+}
+
+// 熔断器
+struct CircuitBreaker {
+    state: CircuitBreakerState,
+    failure_count: int,
+    last_failure_time: time.Time,
+    config: ErrorHandlingConfig,
+}
+
+// 错误统计信息
+struct ErrorStats {
+    total_errors: int,                    // 总错误数
+    errors_by_type: HashMap<ActorErrorType, int>, // 按类型分类的错误数
+    errors_by_severity: HashMap<ErrorSeverity, int>, // 按严重性分类的错误数
+    retry_attempts: int,                  // 重试次数
+    successful_retries: int,              // 成功重试次数
+    failed_retries: int,                  // 失败重试次数
+    recovery_attempts: int,               // 恢复尝试次数
+    successful_recoveries: int,           // 成功恢复次数
+    failed_recoveries: int,               // 失败恢复次数
+    circuit_breaker_trips: int,           // 熔断器触发次数
+}
+
+// ============================================================================
+// Actor错误处理器
+// ============================================================================
+
+struct ActorErrorHandler {
+    config: ErrorHandlingConfig,
+    error_stats: ErrorStats,
+    circuit_breaker: CircuitBreaker,
+    error_log: Vec<ActorErrorInfo>,       // 错误日志
+    suppressed_errors: HashMap<ActorId, int>, // 被抑制的错误计数
+}
+
+// ============================================================================
+// Actor错误处理器实现
+// ============================================================================
+
+// 创建默认错误处理配置
+fn default_error_handling_config() ErrorHandlingConfig {
+    return ErrorHandlingConfig {
+        default_strategy: ErrorHandlingStrategy.RetryWithBackoff,
+        max_retry_attempts: 3,
+        retry_delay_ms: 1000,
+        backoff_multiplier: 2.0,
+        max_backoff_ms: 30000,
+        enable_circuit_breaker: true,
+        circuit_breaker_threshold: 5,
+        circuit_breaker_timeout_ms: 60000,
+        log_errors: true,
+        alert_on_critical_errors: true,
+    };
+}
+
+// 创建Actor错误处理器
+fn new_actor_error_handler(config: ErrorHandlingConfig) ActorErrorHandler {
+    return ActorErrorHandler {
+        config: config,
+        error_stats: ErrorStats {
+            total_errors: 0,
+            errors_by_type: HashMap.new(),
+            errors_by_severity: HashMap.new(),
+            retry_attempts: 0,
+            successful_retries: 0,
+            failed_retries: 0,
+            recovery_attempts: 0,
+            successful_recoveries: 0,
+            failed_recoveries: 0,
+            circuit_breaker_trips: 0,
+        },
+        circuit_breaker: CircuitBreaker {
+            state: CircuitBreakerState.Closed,
+            failure_count: 0,
+            last_failure_time: time.Time { seconds: 0, nanos: 0 },
+            config: config,
+        },
+        error_log: Vec.new(),
+        suppressed_errors: HashMap.new(),
+    };
+}
+
+// 创建Actor错误信息
+fn new_actor_error_info(
+    error_type: ActorErrorType,
+    message: string,
+    code: int,
+    actor_id: ActorId
+) ActorErrorInfo {
+    return ActorErrorInfo {
+        error_type: error_type,
+        message: message,
+        code: code,
+        actor_id: actor_id,
+        timestamp: time.now(),
+        stack_trace: "", // TODO: 实现堆栈跟踪
+        context: HashMap.new(),
+        retry_count: 0,
+        is_recoverable: true, // 默认可恢复
+    };
+}
+
+// 添加错误上下文信息
+fn (self: *ActorErrorInfo) add_context(key: string, value: string) void {
+    self.context.insert(key, value);
+}
+
+// 获取错误严重级别
+fn (self: *ActorErrorInfo) get_severity() ErrorSeverity {
+    match self.error_type {
+        ActorErrorType.ActivationFailed => {
+            return ErrorSeverity.High;
+        },
+        ActorErrorType.DeactivationFailed => {
+            return ErrorSeverity.Medium;
+        },
+        ActorErrorType.MessageHandlingFailed => {
+            return ErrorSeverity.High;
+        },
+        ActorErrorType.StateRestoreFailed => {
+            return ErrorSeverity.Critical;
+        },
+        ActorErrorType.PersistenceFailed => {
+            return ErrorSeverity.High;
+        },
+        ActorErrorType.NetworkFailed => {
+            return ErrorSeverity.High;
+        },
+        ActorErrorType.Timeout => {
+            return ErrorSeverity.Medium;
+        },
+        ActorErrorType.ResourceExhausted => {
+            return ErrorSeverity.Critical;
+        },
+        ActorErrorType.InvalidState => {
+            return ErrorSeverity.High;
+        },
+        ActorErrorType.Unknown => {
+            return ErrorSeverity.Low;
+        }
+    }
+}
+
+// 检查是否应该抑制错误
+fn (self: *ActorErrorHandler) should_suppress_error(actor_id: ActorId) bool {
+    let suppress_count = self.suppressed_errors.get(actor_id);
+    if (suppress_count.is_some()) {
+        return suppress_count.unwrap() > 10; // 如果错误次数超过10次，则抑制
+    }
+    return false;
+}
+
+// 记录错误
+fn (self: *ActorErrorHandler) log_error(error_info: ActorErrorInfo) void {
+    // 更新统计信息
+    self.error_stats.total_errors = self.error_stats.total_errors + 1;
+    
+    // 按类型统计错误
+    let type_count = self.error_stats.errors_by_type.get(error_info.error_type);
+    let new_type_count = if (type_count.is_some()) {
+        type_count.unwrap() + 1
+    } else {
+        1
+    };
+    self.error_stats.errors_by_type.insert(error_info.error_type, new_type_count);
+    
+    // 按严重性统计错误
+    let severity = error_info.get_severity();
+    let severity_count = self.error_stats.errors_by_severity.get(severity);
+    let new_severity_count = if (severity_count.is_some()) {
+        severity_count.unwrap() + 1
+    } else {
+        1
+    };
+    self.error_stats.errors_by_severity.insert(severity, new_severity_count);
+    
+    // 记录错误日志
+    if (self.config.log_errors) {
+        self.error_log.push(error_info);
+        
+        // 如果日志太多，移除最旧的错误记录
+        if (self.error_log.len() > 1000) {
+            self.error_log.remove_at(0);
+        }
+    }
+    
+    // 更新抑制计数
+    let actor_id = error_info.actor_id;
+    let suppress_count = self.suppressed_errors.get(actor_id);
+    let new_suppress_count = if (suppress_count.is_some()) {
+        suppress_count.unwrap() + 1
+    } else {
+        1
+    };
+    self.suppressed_errors.insert(actor_id, new_suppress_count);
+    
+    // 打印错误信息（在实际实现中可能发送到日志系统）
+    if (!self.should_suppress_error(actor_id)) {
+        println("[ERROR] Actor " + actor_id.id + ": " + error_info.message);
+    }
+}
+
+// 清除错误抑制计数
+fn (self: *ActorErrorHandler) clear_suppression(actor_id: ActorId) void {
+    self.suppressed_errors.remove(actor_id);
+}
+
+// 处理Actor错误
+fn (self: *ActorErrorHandler) handle_actor_error(
+    error_info: ActorErrorInfo,
+    strategy: ErrorHandlingStrategy
+) Result<ErrorHandlingStrategy, Error> {
+    // 记录错误
+    self.log_error(error_info);
+    
+    // 检查熔断器
+    if (self.config.enable_circuit_breaker) {
+        let circuit_result = self.check_circuit_breaker();
+        if (circuit_result.is_err()) {
+            return Result.Err(circuit_result.unwrap_err());
+        }
+        
+        if (circuit_result.unwrap() == CircuitBreakerState.Open) {
+            // 熔断器打开，直接返回错误
+            return Result.Err(Error.new("熔断器打开，拒绝请求"));
+        }
+    }
+    
+    // 根据策略处理错误
+    match strategy {
+        ErrorHandlingStrategy.Retry => {
+            return self.handle_retry(error_info);
+        },
+        ErrorHandlingStrategy.RetryWithBackoff => {
+            return self.handle_retry_with_backoff(error_info);
+        },
+        ErrorHandlingStrategy.Failover => {
+            return self.handle_failover(error_info);
+        },
+        ErrorHandlingStrategy.RestartActor => {
+            return self.handle_restart_actor(error_info);
+        },
+        ErrorHandlingStrategy.RestartSystem => {
+            return self.handle_restart_system(error_info);
+        },
+        ErrorHandlingStrategy.Ignore => {
+            return Result.Ok(ErrorHandlingStrategy.Ignore);
+        },
+        ErrorHandlingStrategy.Panic => {
+            return self.handle_panic(error_info);
+        }
+    }
+}
+
+// 处理重试
+fn (self: *ActorErrorHandler) handle_retry(error_info: ActorErrorInfo) Result<ErrorHandlingStrategy, Error> {
+    self.error_stats.retry_attempts = self.error_stats.retry_attempts + 1;
+    
+    if (error_info.retry_count < self.config.max_retry_attempts) {
+        // 增加重试计数
+        let mut new_error_info = error_info;
+        new_error_info.retry_count = error_info.retry_count + 1;
+        
+        // 简单延迟后重试
+        time.sleep_millis(self.config.retry_delay_ms);
+        
+        self.error_stats.successful_retries = self.error_stats.successful_retries + 1;
+        return Result.Ok(ErrorHandlingStrategy.Retry);
+    } else {
+        self.error_stats.failed_retries = self.error_stats.failed_retries + 1;
+        return Result.Err(Error.new("重试次数已达上限"));
+    }
+}
+
+// 处理退避重试
+fn (self: *ActorErrorHandler) handle_retry_with_backoff(error_info: ActorErrorInfo) Result<ErrorHandlingStrategy, Error> {
+    self.error_stats.retry_attempts = self.error_stats.retry_attempts + 1;
+    
+    if (error_info.retry_count < self.config.max_retry_attempts) {
+        // 计算退避时间
+        let backoff_time = self.calculate_backoff_time(error_info.retry_count);
+        
+        // 增加重试计数
+        let mut new_error_info = error_info;
+        new_error_info.retry_count = error_info.retry_count + 1;
+        
+        // 延迟后重试
+        time.sleep_millis(backoff_time);
+        
+        self.error_stats.successful_retries = self.error_stats.successful_retries + 1;
+        return Result.Ok(ErrorHandlingStrategy.RetryWithBackoff);
+    } else {
+        self.error_stats.failed_retries = self.error_stats.failed_retries + 1;
+        return Result.Err(Error.new("退避重试次数已达上限"));
+    }
+}
+
+// 计算退避时间
+fn (self: *ActorErrorHandler) calculate_backoff_time(retry_count: int) int {
+    let base_delay = self.config.retry_delay_ms as float;
+    let multiplier = self.config.backoff_multiplier;
+    let max_delay = self.config.max_backoff_ms as float;
+    
+    let backoff_time = base_delay * (multiplier ** (retry_count as float));
+    
+    if (backoff_time > max_delay) {
+        return self.config.max_backoff_ms;
+    }
+    
+    return backoff_time as int;
+}
+
+// 处理故障转移
+fn (self: *ActorErrorHandler) handle_failover(error_info: ActorErrorInfo) Result<ErrorHandlingStrategy, Error> {
+    // TODO: 实现故障转移逻辑
+    // 这需要与集群系统集成，将请求转移到其他节点
+    
+    println("[FAILOVER] 尝试故障转移 Actor " + error_info.actor_id.id);
+    
+    return Result.Ok(ErrorHandlingStrategy.Failover);
+}
+
+// 处理重启Actor
+fn (self: *ActorErrorHandler) handle_restart_actor(error_info: ActorErrorInfo) Result<ErrorHandlingStrategy, Error> {
+    // TODO: 实现重启Actor逻辑
+    // 这需要与Actor生命周期管理系统集成
+    
+    println("[RESTART] 尝试重启 Actor " + error_info.actor_id.id);
+    
+    return Result.Ok(ErrorHandlingStrategy.RestartActor);
+}
+
+// 处理重启系统
+fn (self: *ActorErrorHandler) handle_restart_system(error_info: ActorErrorInfo) Result<ErrorHandlingStrategy, Error> {
+    // TODO: 实现重启系统逻辑
+    
+    println("[RESTART_SYSTEM] 尝试重启系统");
+    
+    return Result.Ok(ErrorHandlingStrategy.RestartSystem);
+}
+
+// 处理恐慌（终止程序）
+fn (self: *ActorErrorHandler) handle_panic(error_info: ActorErrorInfo) Result<ErrorHandlingStrategy, Error> {
+    // 记录关键错误
+    if (self.config.alert_on_critical_errors) {
+        println("[PANIC] 关键错误发生: " + error_info.message);
+        println("[PANIC] 终止程序以防止进一步损坏");
+    }
+    
+    // TODO: 实际终止程序
+    // panic("关键错误: " + error_info.message);
+    
+    return Result.Ok(ErrorHandlingStrategy.Panic);
+}
+
+// 检查熔断器状态
+fn (self: *ActorErrorHandler) check_circuit_breaker() Result<CircuitBreakerState, Error> {
+    let now = time.now();
+    
+    match self.circuit_breaker.state {
+        CircuitBreakerState.Closed => {
+            // 检查是否应该打开熔断器
+            if (self.circuit_breaker.failure_count >= self.config.circuit_breaker_threshold) {
+                self.circuit_breaker.state = CircuitBreakerState.Open;
+                self.circuit_breaker.last_failure_time = now;
+                self.error_stats.circuit_breaker_trips = self.error_stats.circuit_breaker_trips + 1;
+                return Result.Ok(CircuitBreakerState.Open);
+            }
+            return Result.Ok(CircuitBreakerState.Closed);
+        },
+        CircuitBreakerState.Open => {
+            // 检查是否应该半开
+            let timeout_duration = time.duration_from_millis(self.config.circuit_breaker_timeout_ms);
+            let timeout_threshold = time.time_add(self.circuit_breaker.last_failure_time, timeout_duration);
+            
+            if (time.time_less(timeout_threshold, now)) {
+                self.circuit_breaker.state = CircuitBreakerState.HalfOpen;
+                return Result.Ok(CircuitBreakerState.HalfOpen);
+            }
+            return Result.Ok(CircuitBreakerState.Open);
+        },
+        CircuitBreakerState.HalfOpen => {
+            // 在半开状态下，允许一个请求通过
+            return Result.Ok(CircuitBreakerState.HalfOpen);
+        }
+    }
+}
+
+// 记录成功（用于熔断器）
+fn (self: *ActorErrorHandler) record_success() void {
+    // 重置失败计数
+    self.circuit_breaker.failure_count = 0;
+    
+    // 如果是半开状态，关闭熔断器
+    if (self.circuit_breaker.state == CircuitBreakerState.HalfOpen) {
+        self.circuit_breaker.state = CircuitBreakerState.Closed;
+    }
+}
+
+// 记录失败（用于熔断器）
+fn (self: *ActorErrorHandler) record_failure() void {
+    self.circuit_breaker.failure_count = self.circuit_breaker.failure_count + 1;
+    
+    // 如果是半开状态，重新打开熔断器
+    if (self.circuit_breaker.state == CircuitBreakerState.HalfOpen) {
+        self.circuit_breaker.state = CircuitBreakerState.Open;
+        self.circuit_breaker.last_failure_time = time.now();
+    }
+}
+
+// 尝试恢复Actor
+fn (self: *ActorErrorHandler) recover_actor(
+    actor_id: ActorId,
+    strategy: RecoveryStrategy
+) Result<void, Error> {
+    self.error_stats.recovery_attempts = self.error_stats.recovery_attempts + 1;
+    
+    match strategy {
+        RecoveryStrategy.None => {
+            return Result.Ok(void);
+        },
+        RecoveryStrategy.RestoreFromSnapshot => {
+            return self.recover_from_snapshot(actor_id);
+        },
+        RecoveryStrategy.ReplayEvents => {
+            return self.recover_by_replaying_events(actor_id);
+        },
+        RecoveryStrategy.RecreateActor => {
+            return self.recover_by_recreating_actor(actor_id);
+        },
+        RecoveryStrategy.FailoverToReplica => {
+            return self.recover_by_failover(actor_id);
+        },
+        RecoveryStrategy.ManualRecovery => {
+            return self.recover_manually(actor_id);
+        }
+    }
+}
+
+// 从快照恢复
+fn (self: *ActorErrorHandler) recover_from_snapshot(actor_id: ActorId) Result<void, Error> {
+    // TODO: 实现从快照恢复逻辑
+    // 这需要与持久化系统集成
+    
+    println("[RECOVERY] 从快照恢复 Actor " + actor_id.id);
+    
+    self.error_stats.successful_recoveries = self.error_stats.successful_recoveries + 1;
+    return Result.Ok(void);
+}
+
+// 通过重放事件恢复
+fn (self: *ActorErrorHandler) recover_by_replaying_events(actor_id: ActorId) Result<void, Error> {
+    // TODO: 实现重放事件恢复逻辑
+    // 这需要与事件溯源系统集成
+    
+    println("[RECOVERY] 通过重放事件恢复 Actor " + actor_id.id);
+    
+    self.error_stats.successful_recoveries = self.error_stats.successful_recoveries + 1;
+    return Result.Ok(void);
+}
+
+// 通过重新创建Actor恢复
+fn (self: *ActorErrorHandler) recover_by_recreating_actor(actor_id: ActorId) Result<void, Error> {
+    // TODO: 实现重新创建Actor恢复逻辑
+    // 这需要与Actor生命周期管理系统集成
+    
+    println("[RECOVERY] 通过重新创建恢复 Actor " + actor_id.id);
+    
+    self.error_stats.successful_recoveries = self.error_stats.successful_recoveries + 1;
+    return Result.Ok(void);
+}
+
+// 通过故障转移恢复
+fn (self: *ActorErrorHandler) recover_by_failover(actor_id: ActorId) Result<void, Error> {
+    // TODO: 实现故障转移恢复逻辑
+    // 这需要与集群系统集成
+    
+    println("[RECOVERY] 通过故障转移恢复 Actor " + actor_id.id);
+    
+    self.error_stats.successful_recoveries = self.error_stats.successful_recoveries + 1;
+    return Result.Ok(void);
+}
+
+// 手动恢复
+fn (self: *ActorErrorHandler) recover_manually(actor_id: ActorId) Result<void, Error> {
+    // TODO: 实现手动恢复逻辑
+    // 这可能需要人工干预
+    
+    println("[RECOVERY] 手动恢复 Actor " + actor_id.id + " 需要人工干预");
+    
+    self.error_stats.failed_recoveries = self.error_stats.failed_recoveries + 1;
+    return Result.Err(Error.new("需要手动恢复"));
+}
+
+// 获取错误统计信息
+fn (self: *ActorErrorHandler) get_error_stats() ErrorStats {
+    return self.error_stats;
+}
+
+// 清理旧错误日志
+fn (self: *ActorErrorHandler) cleanup_old_errors(max_age_hours: int) int {
+    let now = time.now();
+    let max_age_duration = time.duration_from_secs(max_age_hours * 3600);
+    let age_threshold = time.time_sub(now, max_age_duration);
+    
+    let mut removed_count = 0;
+    let mut remaining_errors = Vec.new();
+    
+    for (self.error_log) |error_info| {
+        if (time.time_less(error_info.timestamp, age_threshold)) {
+            removed_count = removed_count + 1;
+        } else {
+            remaining_errors.push(error_info);
+        }
+    }
+    
+    self.error_log = remaining_errors;
+    
+    return removed_count;
+}
+
+// ============================================================================
+// Actor错误处理混入
+// ============================================================================
+
+// Actor错误处理混入，提供错误处理功能
+struct ActorErrorHandlingMixin<T> {
+    actor: T,
+    error_handler: *ActorErrorHandler,
+}
+
+// 创建Actor错误处理混入
+fn new_actor_error_handling_mixin<T>(
+    actor: T,
+    error_handler: *ActorErrorHandler
+) ActorErrorHandlingMixin<T> {
+    return ActorErrorHandlingMixin<T> {
+        actor: actor,
+        error_handler: error_handler,
+    };
+}
+
+// 处理Actor错误
+fn (self: *ActorErrorHandlingMixin<T>) handle_error(
+    error_type: ActorErrorType,
+    message: string,
+    code: int,
+    strategy: ErrorHandlingStrategy
+) Result<ErrorHandlingStrategy, Error> {
+    let actor_id = self.actor.get_id();
+    let error_info = new_actor_error_info(error_type, message, code, actor_id);
+    
+    return self.error_handler.handle_actor_error(error_info, strategy);
+}
+
+// 记录成功（用于熔断器）
+fn (self: *ActorErrorHandlingMixin<T>) record_success() void {
+    self.error_handler.record_success();
+}
+
+// 记录失败（用于熔断器）
+fn (self: *ActorErrorHandlingMixin<T>) record_failure() void {
+    self.error_handler.record_failure();
+}
+
+// 尝试恢复Actor
+fn (self: *ActorErrorHandlingMixin<T>) recover(strategy: RecoveryStrategy) Result<void, Error> {
+    let actor_id = self.actor.get_id();
+    return self.error_handler.recover_actor(actor_id, strategy);
+}
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+// Actor错误类型转字符串
+fn actor_error_type_to_string(error_type: ActorErrorType) string {
+    match error_type {
+        ActorErrorType.ActivationFailed => {
+            return "ActivationFailed";
+        },
+        ActorErrorType.DeactivationFailed => {
+            return "DeactivationFailed";
+        },
+        ActorErrorType.MessageHandlingFailed => {
+            return "MessageHandlingFailed";
+        },
+        ActorErrorType.StateRestoreFailed => {
+            return "StateRestoreFailed";
+        },
+        ActorErrorType.PersistenceFailed => {
+            return "PersistenceFailed";
+        },
+        ActorErrorType.NetworkFailed => {
+            return "NetworkFailed";
+        },
+        ActorErrorType.Timeout => {
+            return "Timeout";
+        },
+        ActorErrorType.ResourceExhausted => {
+            return "ResourceExhausted";
+        },
+        ActorErrorType.InvalidState => {
+            return "InvalidState";
+        },
+        ActorErrorType.Unknown => {
+            return "Unknown";
+        }
+    }
+}
+
+// 错误处理策略转字符串
+fn error_handling_strategy_to_string(strategy: ErrorHandlingStrategy) string {
+    match strategy {
+        ErrorHandlingStrategy.Retry => {
+            return "Retry";
+        },
+        ErrorHandlingStrategy.RetryWithBackoff => {
+            return "RetryWithBackoff";
+        },
+        ErrorHandlingStrategy.Failover => {
+            return "Failover";
+        },
+        ErrorHandlingStrategy.RestartActor => {
+            return "RestartActor";
+        },
+        ErrorHandlingStrategy.RestartSystem => {
+            return "RestartSystem";
+        },
+        ErrorHandlingStrategy.Ignore => {
+            return "Ignore";
+        },
+        ErrorHandlingStrategy.Panic => {
+            return "Panic";
+        }
+    }
+}
+
+// 恢复策略转字符串
+fn recovery_strategy_to_string(strategy: RecoveryStrategy) string {
+    match strategy {
+        RecoveryStrategy.None => {
+            return "None";
+        },
+        RecoveryStrategy.RestoreFromSnapshot => {
+            return "RestoreFromSnapshot";
+        },
+        RecoveryStrategy.ReplayEvents => {
+            return "ReplayEvents";
+        },
+        RecoveryStrategy.RecreateActor => {
+            return "RecreateActor";
+        },
+        RecoveryStrategy.FailoverToReplica => {
+            return "FailoverToReplica";
+        },
+        RecoveryStrategy.ManualRecovery => {
+            return "ManualRecovery";
+        }
+    }
+}
+
+// 错误统计信息转字符串
+fn error_stats_to_string(stats: ErrorStats) string {
+    let mut result = "错误统计信息:\n";
+    result = string.concat(result, "  总错误数: " + string.from_int(stats.total_errors) + "\n");
+    result = string.concat(result, "  重试次数: " + string.from_int(stats.retry_attempts) + "\n");
+    result = string.concat(result, "  成功重试次数: " + string.from_int(stats.successful_retries) + "\n");
+    result = string.concat(result, "  失败重试次数: " + string.from_int(stats.failed_retries) + "\n");
+    result = string.concat(result, "  恢复尝试次数: " + string.from_int(stats.recovery_attempts) + "\n");
+    result = string.concat(result, "  成功恢复次数: " + string.from_int(stats.successful_recoveries) + "\n");
+    result = string.concat(result, "  失败恢复次数: " + string.from_int(stats.failed_recoveries) + "\n");
+    result = string.concat(result, "  熔断器触发次数: " + string.from_int(stats.circuit_breaker_trips) + "\n");
+    
+    result = string.concat(result, "  按类型分类的错误:\n");
+    for (stats.errors_by_type.entries()) |entry| {
+        let error_type = entry.0;
+        let count = entry.1;
+        result = string.concat(result, "    " + actor_error_type_to_string(error_type) + ": " + string.from_int(count) + "\n");
+    }
+    
+    result = string.concat(result, "  按严重性分类的错误:\n");
+    for (stats.errors_by_severity.entries()) |entry| {
+        let severity = entry.0;
+        let count = entry.1;
+        result = string.concat(result, "    " + error_severity_to_string(severity) + ": " + string.from_int(count) + "\n");
+    }
+    
+    return result;
+}
+
+// 错误严重级别转字符串
+fn error_severity_to_string(severity: ErrorSeverity) string {
+    match severity {
+        ErrorSeverity.Low => {
+            return "Low";
+        },
+        ErrorSeverity.Medium => {
+            return "Medium";
+        },
+        ErrorSeverity.High => {
+            return "High";
+        },
+        ErrorSeverity.Critical => {
+            return "Critical";
+        }
+    }
+}

@@ -1,0 +1,323 @@
+// 高级Actor定时器系统演示程序
+import std.actor.timer.advanced.{AdvancedTimerManager, TimerCallback, TimerId, TimerType, TimerState, TimerPriority, CronExpression, new_advanced_timer_manager, delay_duration, interval_duration, new_cron_expression, timer_type_to_string, timer_state_to_string, timer_priority_to_string, timer_stats_to_string};
+import std.actor.{Actor, ActorId, ActorRef, new_actor_id, actor_id_to_string, Result, Error};
+import std.time.{now, srand, rand, sleep_millis, time_add, duration_from_secs};
+import std.string;
+import std.io.{println};
+
+// 简单的定时器回调实现
+struct SimpleTimerCallback {
+    name: string,
+}
+
+impl TimerCallback for SimpleTimerCallback {
+    fn on_timer_tick(self: *Self, timer_id: TimerId) void {
+        println(self.name + " 定时器触发: " + timer_id.id);
+    }
+    
+    fn on_timer_error(self: *Self, timer_id: TimerId, error: Error) void {
+        println(self.name + " 定时器错误: " + timer_id.id + " - " + error.message);
+    }
+    
+    fn on_timer_complete(self: *Self, timer_id: TimerId) void {
+        println(self.name + " 定时器完成: " + timer_id.id);
+    }
+}
+
+// 简单的Actor实现
+struct SimpleActor {
+    id: ActorId,
+    name: string,
+}
+
+impl Actor for SimpleActor {
+    fn handle_message(self: *Self, message: *Message) Result<void, Error> {
+        println(self.name + " 处理消息");
+        return Result.Ok(void);
+    }
+    
+    fn get_id(self: *Self) ActorId {
+        return self.id;
+    }
+    
+    fn on_activate(self: *Self) Result<void, Error> {
+        println(self.name + " 激活");
+        return Result.Ok(void);
+    }
+    
+    fn on_deactivate(self: *Self) Result<void, Error> {
+        println(self.name + " 停用");
+        return Result.Ok(void);
+    }
+}
+
+fn main() int {
+    // 初始化随机数种子
+    let current_time = now();
+    srand(current_time.seconds as int);
+    
+    println("=== 高级Actor定时器系统演示 ===");
+    
+    // 创建高级定时器管理器
+    let mut timer_manager = new_advanced_timer_manager();
+    
+    println("已创建定时器管理器");
+    
+    // 创建定时器回调
+    let callback1 = SimpleTimerCallback { name: "回调1" };
+    let callback2 = SimpleTimerCallback { name: "回调2" };
+    let callback3 = SimpleTimerCallback { name: "回调3" };
+    
+    // 创建Actor引用（简化实现）
+    struct SimpleActorRef {
+        id: ActorId,
+    }
+    
+    let actor_id = new_actor_id("simple-actor-1");
+    let actor_ref = SimpleActorRef { id: actor_id };
+    
+    println("\n注册不同类型的定时器:");
+    
+    // 注册一次性定时器（1秒后触发）
+    let delay1 = delay_duration(1, 0);
+    let timer1_result = timer_manager.register_once_timer(
+        actor_ref, 
+        &callback1, 
+        delay1, 
+        "一次性定时器", 
+        TimerPriority.Normal
+    );
+    
+    if (timer1_result.is_err()) {
+        println("注册一次性定时器失败: " + timer1_result.unwrap_err().message);
+    } else {
+        let timer1_id = timer1_result.unwrap();
+        println("  一次性定时器注册成功: " + timer1_id.id);
+    }
+    
+    // 注册重复定时器（立即触发，每2秒重复一次，最多执行3次）
+    let initial_delay = delay_duration(0, 500); // 0.5秒后首次触发
+    let period = interval_duration(2, 0); // 每2秒重复
+    let timer2_result = timer_manager.register_repeated_timer(
+        actor_ref,
+        &callback2,
+        initial_delay,
+        period,
+        "重复定时器",
+        TimerPriority.High,
+        3 // 最多执行3次
+    );
+    
+    if (timer2_result.is_err()) {
+        println("注册重复定时器失败: " + timer2_result.unwrap_err().message);
+    } else {
+        let timer2_id = timer2_result.unwrap();
+        println("  重复定时器注册成功: " + timer2_id.id);
+    }
+    
+    // 注册Cron表达式定时器（简化实现，每分钟触发一次）
+    let cron_expr = new_cron_expression("*", "*", "*", "*", "*", "*"); // 每秒触发（简化演示）
+    let timer3_result = timer_manager.register_cron_timer(
+        actor_ref,
+        &callback3,
+        cron_expr,
+        "Cron定时器",
+        TimerPriority.Low,
+        5 // 最多执行5次
+    );
+    
+    if (timer3_result.is_err()) {
+        println("注册Cron定时器失败: " + timer3_result.unwrap_err().message);
+    } else {
+        let timer3_id = timer3_result.unwrap();
+        println("  Cron定时器注册成功: " + timer3_id.id);
+    }
+    
+    // 显示当前定时器信息
+    println("\n当前定时器信息:");
+    for (timer_manager.timers.entries()) |entry| {
+        let timer_id = entry.0;
+        let timer_info = entry.1;
+        println("  定时器ID: " + timer_id.id);
+        println("    类型: " + timer_type_to_string(timer_info.timer_type));
+        println("    状态: " + timer_state_to_string(timer_info.state));
+        println("    优先级: " + timer_priority_to_string(timer_info.priority));
+        println("    标签: " + timer_info.tag);
+        println("    执行次数: " + string.from_int(timer_info.execution_count));
+        println("    错误次数: " + string.from_int(timer_info.error_count));
+    }
+    
+    // 等待一段时间让定时器触发
+    println("\n等待定时器触发（5秒）...");
+    sleep_millis(5000);
+    
+    // 手动处理到期的定时器
+    println("\n处理到期的定时器:");
+    timer_manager.process_due_timers();
+    timer_manager.process_due_reminders();
+    
+    // 显示更新后的定时器信息
+    println("\n更新后的定时器信息:");
+    for (timer_manager.timers.entries()) |entry| {
+        let timer_id = entry.0;
+        let timer_info = entry.1;
+        println("  定时器ID: " + timer_id.id);
+        println("    类型: " + timer_type_to_string(timer_info.timer_type));
+        println("    状态: " + timer_state_to_string(timer_info.state));
+        println("    执行次数: " + string.from_int(timer_info.execution_count));
+        println("    错误次数: " + string.from_int(timer_info.error_count));
+    }
+    
+    // 暂停一个定时器
+    println("\n暂停重复定时器:");
+    // 重新获取定时器ID（在实际应用中应该保存这些ID）
+    for (timer_manager.timers.entries()) |entry| {
+        let timer_id = entry.0;
+        let timer_info = entry.1;
+        if (timer_info.tag == "重复定时器") {
+            let pause_result = timer_manager.pause_timer(timer_id);
+            if (pause_result.is_err()) {
+                println("暂停定时器失败: " + pause_result.unwrap_err().message);
+            } else {
+                let paused = pause_result.unwrap();
+                if (paused) {
+                    println("  定时器 " + timer_id.id + " 已暂停");
+                } else {
+                    println("  定时器 " + timer_id.id + " 暂停失败");
+                }
+            }
+            break;
+        }
+    }
+    
+    // 等待一段时间
+    println("\n等待2秒...");
+    sleep_millis(2000);
+    
+    // 恢复定时器
+    println("\n恢复重复定时器:");
+    for (timer_manager.timers.entries()) |entry| {
+        let timer_id = entry.0;
+        let timer_info = entry.1;
+        if (timer_info.tag == "重复定时器" && timer_info.state == TimerState.Paused) {
+            let resume_result = timer_manager.resume_timer(timer_id);
+            if (resume_result.is_err()) {
+                println("恢复定时器失败: " + resume_result.unwrap_err().message);
+            } else {
+                let resumed = resume_result.unwrap();
+                if (resumed) {
+                    println("  定时器 " + timer_id.id + " 已恢复");
+                } else {
+                    println("  定时器 " + timer_id.id + " 恢复失败");
+                }
+            }
+            break;
+        }
+    }
+    
+    // 再次等待一段时间让定时器触发
+    println("\n再次等待定时器触发（3秒）...");
+    sleep_millis(3000);
+    
+    // 再次处理到期的定时器
+    println("\n再次处理到期的定时器:");
+    timer_manager.process_due_timers();
+    timer_manager.process_due_reminders();
+    
+    // 取消一个定时器
+    println("\n取消一次性定时器:");
+    for (timer_manager.timers.entries()) |entry| {
+        let timer_id = entry.0;
+        let timer_info = entry.1;
+        if (timer_info.tag == "一次性定时器") {
+            let cancel_result = timer_manager.cancel_timer(timer_id);
+            if (cancel_result.is_err()) {
+                println("取消定时器失败: " + cancel_result.unwrap_err().message);
+            } else {
+                let cancelled = cancel_result.unwrap();
+                if (cancelled) {
+                    println("  定时器 " + timer_id.id + " 已取消");
+                } else {
+                    println("  定时器 " + timer_id.id + " 取消失败");
+                }
+            }
+            break;
+        }
+    }
+    
+    // 注册提醒器
+    println("\n注册提醒器:");
+    let reminder_due_time = time_add(now(), duration_from_secs(3)); // 3秒后触发
+    let reminder_period = interval_duration(5, 0); // 每5秒重复
+    let reminder_result = timer_manager.register_reminder(
+        actor_id,
+        "test-reminder",
+        reminder_due_time,
+        reminder_period,
+        "测试提醒数据",
+        TimerPriority.Normal,
+        3 // 最多执行3次
+    );
+    
+    if (reminder_result.is_err()) {
+        println("注册提醒器失败: " + reminder_result.unwrap_err().message);
+    } else {
+        println("  提醒器注册成功: test-reminder");
+    }
+    
+    // 等待提醒器触发
+    println("\n等待提醒器触发（10秒）...");
+    sleep_millis(10000);
+    
+    // 处理到期的提醒器
+    println("\n处理到期的提醒器:");
+    timer_manager.process_due_reminders();
+    
+    // 显示提醒器信息
+    println("\n提醒器信息:");
+    for (timer_manager.reminders.entries()) |entry| {
+        let name = entry.0;
+        let reminder_info = entry.1;
+        println("  提醒器名称: " + name);
+        println("    状态: " + timer_state_to_string(reminder_info.state));
+        println("    执行次数: " + string.from_int(reminder_info.execution_count));
+    }
+    
+    // 取消提醒器
+    println("\n取消提醒器:");
+    let unregister_result = timer_manager.unregister_reminder("test-reminder");
+    if (unregister_result.is_err()) {
+        println("取消提醒器失败: " + unregister_result.unwrap_err().message);
+    } else {
+        let unregistered = unregister_result.unwrap();
+        if (unregistered) {
+            println("  提醒器已取消");
+        } else {
+            println("  提醒器取消失败");
+        }
+    }
+    
+    // 显示最终定时器统计信息
+    println("\n最终定时器统计信息:");
+    let stats = timer_manager.get_stats();
+    println(timer_stats_to_string(stats));
+    
+    // 清理过期的定时器
+    println("\n清理过期的定时器:");
+    let cleanup_count = timer_manager.cleanup_expired_timers(interval_duration(1, 0)); // 清理1秒前创建的定时器
+    println("  清理了 " + string.from_int(cleanup_count) + " 个过期定时器");
+    
+    // 最终统计信息
+    println("\n清理后的定时器统计信息:");
+    let final_stats = timer_manager.get_stats();
+    println(timer_stats_to_string(final_stats));
+    
+    println("\n=== 演示完成 ===");
+    
+    return 0;
+}
+
+// 简单的Actor引用实现
+impl<T> ActorRef<T> for SimpleActorRef {
+    // 这里只是演示，实际实现会更复杂
+}

@@ -1,0 +1,664 @@
+// std.net - 网络模块
+// 结合V和Nim的优点
+// 使用大括号表示显式内存管理（类似Zig）
+module std.net;
+
+import std.error.{Result, Option, NetError};
+import std.io;
+import std.string;
+import std.collections.Vec;
+
+// ============================================================================
+// C标准库和网络接口
+// ============================================================================
+
+extern "C" {
+    // BSD套接字接口
+    fn socket(domain: int, type: int, protocol: int) int;
+    fn bind(sockfd: int, addr: *SockAddr, addrlen: int) int;
+    fn listen(sockfd: int, backlog: int) int;
+    fn accept(sockfd: int, addr: *SockAddr, addrlen: *int) int;
+    fn connect(sockfd: int, addr: *SockAddr, addrlen: int) int;
+    fn send(sockfd: int, buf: *void, len: int, flags: int) int;
+    fn recv(sockfd: int, buf: *void, len: int, flags: int) int;
+    fn sendto(sockfd: int, buf: *void, len: int, flags: int, dest_addr: *SockAddr, addrlen: int) int;
+    fn recvfrom(sockfd: int, buf: *void, len: int, flags: int, src_addr: *SockAddr, addrlen: *int) int;
+    fn close(sockfd: int) int;
+    fn getaddrinfo(node: *char, service: *char, hints: *AddrInfo, res: **AddrInfo) int;
+    fn freeaddrinfo(res: *AddrInfo) void;
+    fn inet_pton(af: int, src: *char, dst: *void) int;
+    fn inet_ntop(af: int, src: *void, dst: *char, size: int) *char;
+    fn htons(hostshort: int) int;
+    fn ntohs(netshort: int) int;
+    fn htonl(hostlong: int) int;
+    fn ntohl(netlong: int) int;
+    fn select(nfds: int, readfds: *FdSet, writefds: *FdSet, exceptfds: *FdSet, timeout: *TimeVal) int;
+    fn setsockopt(sockfd: int, level: int, optname: int, optval: *void, optlen: int) int;
+    fn getsockopt(sockfd: int, level: int, optname: int, optval: *void, optlen: *int) int;
+    fn fcntl(fd: int, cmd: int, ...) int;
+}
+
+// 套接字地址结构
+struct SockAddr {
+    sa_family: int,
+    sa_data: [14]byte
+}
+
+// IPv4地址结构
+struct SockAddrIn {
+    sin_family: int,
+    sin_port: int,
+    sin_addr: InAddr,
+    sin_zero: [8]byte
+}
+
+// IPv6地址结构
+struct SockAddrIn6 {
+    sin6_family: int,
+    sin6_port: int,
+    sin6_flowinfo: int,
+    sin6_addr: In6Addr,
+    sin6_scope_id: int
+}
+
+// IPv4地址
+struct InAddr {
+    s_addr: int
+}
+
+// IPv6地址
+struct In6Addr {
+    s6_addr: [16]byte
+}
+
+// 地址信息结构
+struct AddrInfo {
+    ai_flags: int,
+    ai_family: int,
+    ai_socktype: int,
+    ai_protocol: int,
+    ai_addrlen: int,
+    ai_addr: *SockAddr,
+    ai_canonname: *char,
+    ai_next: *AddrInfo
+}
+
+// 文件描述符集合
+struct FdSet {
+    fds_bits: [32]int
+}
+
+// 时间结构
+struct TimeVal {
+    tv_sec: int,
+    tv_usec: int
+}
+
+// 协议族
+const AF_INET: int = 2;
+const AF_INET6: int = 10;
+
+// 套接字类型
+const SOCK_STREAM: int = 1;
+const SOCK_DGRAM: int = 2;
+
+// 协议
+const IPPROTO_TCP: int = 6;
+const IPPROTO_UDP: int = 17;
+
+// 地址信息标志
+const AI_PASSIVE: int = 1;
+const AI_CANONNAME: int = 2;
+const AI_NUMERICHOST: int = 4;
+
+// INADDR常量
+const INADDR_ANY: int = 0;
+const INADDR_LOOPBACK: int = 0x7f000001;
+
+// ============================================================================
+// 网络地址类型
+// ============================================================================
+
+/// IP地址类型
+enum IpAddrType {
+    V4,
+    V6
+}
+
+/// IP地址
+pub struct IpAddr {
+    addr_type: IpAddrType,
+    v4_addr: InAddr,
+    v6_addr: In6Addr
+}
+
+/// 套接字地址
+pub struct SocketAddr {
+    ip: IpAddr,
+    port: int
+}
+
+/// IP地址实现
+impl IpAddr {
+    /// 创建IPv4地址
+    pub fn v4(a: int, b: int, c: int, d: int) IpAddr {
+        let mut addr: InAddr;
+        addr.s_addr = (d << 24) | (c << 16) | (b << 8) | a;
+        
+        return IpAddr {
+            addr_type: IpAddrType.V4,
+            v4_addr: addr,
+            v6_addr: In6Addr { s6_addr: [0; 16] }
+        };
+    }
+    
+    /// 创建IPv6地址
+    pub fn v6(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int) IpAddr {
+        let mut addr: In6Addr;
+        // 简化实现
+        addr.s6_addr = [0; 16];
+        
+        return IpAddr {
+            addr_type: IpAddrType.V6,
+            v4_addr: InAddr { s_addr: 0 },
+            v6_addr: addr
+        };
+    }
+    
+    /// 本地回环地址 (127.0.0.1)
+    pub fn localhost() IpAddr {
+        return IpAddr.v4(127, 0, 0, 1);
+    }
+    
+    /// 任意地址 (0.0.0.0)
+    pub fn unspecified() IpAddr {
+        return IpAddr.v4(0, 0, 0, 0);
+    }
+    
+    /// 检查是否为IPv4
+    pub fn is_ipv4(self: IpAddr) bool {
+        return self.addr_type == IpAddrType.V4;
+    }
+    
+    /// 检查是否为IPv6
+    pub fn is_ipv6(self: IpAddr) bool {
+        return self.addr_type == IpAddrType.V6;
+    }
+}
+
+// ============================================================================
+// 套接字类型
+// ============================================================================
+
+/// 套接字类型
+enum SocketType {
+    Tcp,
+    Udp
+}
+
+/// 套接字（显式内存管理）
+pub struct Socket {
+    fd: int,
+    sock_type: SocketType
+}
+
+// ============================================================================
+// TCP相关类型
+// ============================================================================
+
+/// TCP监听器（显式内存管理）
+pub struct TcpListener {
+    socket: Socket
+}
+
+/// TCP流（显式内存管理）
+pub struct TcpStream {
+    socket: Socket
+}
+
+// ============================================================================
+// UDP相关类型
+// ============================================================================
+
+/// UDP套接字（显式内存管理）
+pub struct UdpSocket {
+    socket: Socket
+}
+
+/// UDP数据包
+pub struct UdpPacket {
+    data: []byte,
+    src_addr: SocketAddr
+}
+
+// ============================================================================
+// 套接字实现（显式内存管理 - 类似Zig）
+// ============================================================================
+
+/// 套接字实现
+impl Socket {
+    /// 创建新的套接字
+    pub fn new(sock_type: SocketType) Result<Socket, NetError> {
+        let (domain, type_val, protocol) = match sock_type {
+            SocketType.Tcp => (AF_INET, SOCK_STREAM, IPPROTO_TCP),
+            SocketType.Udp => (AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        };
+        
+        let fd = socket(domain, type_val, protocol);
+        if (fd < 0) {
+            return Result.Err(NetError.SocketError);
+        }
+        
+        return Result.Ok(Socket {
+            fd: fd,
+            sock_type: sock_type
+        });
+    }
+    
+    /// 绑定地址
+    pub fn bind(self: *Socket, addr: SocketAddr) Result<void, NetError> {
+        // TODO: 实现地址绑定
+        return Result.Ok(());
+    }
+    
+    /// 监听连接
+    pub fn listen(self: *Socket, backlog: int) Result<void, NetError> {
+        let result = listen(self.fd, backlog);
+        if (result < 0) {
+            return Result.Err(NetError.ListenError);
+        }
+        return Result.Ok(());
+    }
+    
+    /// 接受连接
+    pub fn accept(self: *Socket) Result<(TcpStream, SocketAddr), NetError> {
+        var addr: SockAddr;
+        var addrlen: int = sizeof(SockAddr);
+        
+        let client_fd = accept(self.fd, &addr, &addrlen);
+        if (client_fd < 0) {
+            return Result.Err(NetError.AcceptError);
+        }
+        
+        let client_socket = Socket {
+            fd: client_fd,
+            sock_type: SocketType.Tcp
+        };
+        
+        let stream = TcpStream {
+            socket: client_socket
+        };
+        
+        // TODO: 解析客户端地址
+        let client_addr = SocketAddr {
+            ip: IpAddr.localhost(),
+            port: 0
+        };
+        
+        return Result.Ok((stream, client_addr));
+    }
+    
+    /// 连接到远程地址
+    pub fn connect(self: *Socket, addr: SocketAddr) Result<void, NetError> {
+        // TODO: 实现连接逻辑
+        return Result.Ok(());
+    }
+    
+    /// 发送数据
+    pub fn send(self: *Socket, data: []byte) Result<int, NetError> {
+        let bytes_sent = send(self.fd, data.as_ptr(), data.len(), 0);
+        if (bytes_sent < 0) {
+            return Result.Err(NetError.SendError);
+        }
+        return Result.Ok(bytes_sent);
+    }
+    
+    /// 接收数据
+    pub fn recv(self: *Socket, buffer: []byte) Result<int, NetError> {
+        let bytes_received = recv(self.fd, buffer.as_ptr(), buffer.len(), 0);
+        if (bytes_received < 0) {
+            return Result.Err(NetError.RecvError);
+        }
+        return Result.Ok(bytes_received);
+    }
+    
+    /// 关闭套接字（显式内存管理 - 类似Zig）
+    pub fn close(self: *Socket) Result<void, NetError> {
+        let result = close(self.fd);
+        if (result < 0) {
+            return Result.Err(NetError.CloseError);
+        }
+        return Result.Ok(());
+    }
+    
+    /// 释放套接字资源（显式内存管理 - 类似Zig）
+    pub fn drop(self: *Socket) void {
+        // 显式关闭套接字
+        close(self.fd);
+    }
+}
+
+// ============================================================================
+// TCP监听器实现 (类似V和Nim)
+// ============================================================================
+
+/// TCP监听器实现
+impl TcpListener {
+    /// 绑定到指定地址并开始监听
+    pub fn bind(addr: SocketAddr) Result<TcpListener, NetError> {
+        let socket_result = Socket.new(SocketType.Tcp);
+        if (socket_result.is_err()) {
+            return Result.Err(socket_result.unwrap_err());
+        }
+        
+        let mut socket = socket_result.unwrap();
+        let bind_result = socket.bind(addr);
+        if (bind_result.is_err()) {
+            return Result.Err(bind_result.unwrap_err());
+        }
+        
+        let listen_result = socket.listen(128);
+        if (listen_result.is_err()) {
+            return Result.Err(listen_result.unwrap_err());
+        }
+        
+        return Result.Ok(TcpListener {
+            socket: socket
+        });
+    }
+    
+    /// 接受新的连接
+    pub fn accept(self: *TcpListener) Result<(TcpStream, SocketAddr), NetError> {
+        return self.socket.accept();
+    }
+    
+    /// 获取本地地址
+    pub fn local_addr(self: *TcpListener) Result<SocketAddr, NetError> {
+        // TODO: 实现获取本地地址
+        return Result.Ok(SocketAddr {
+            ip: IpAddr.localhost(),
+            port: 8080
+        });
+    }
+    
+    /// 关闭监听器（显式内存管理 - 类似Zig）
+    pub fn close(self: *TcpListener) Result<void, NetError> {
+        return self.socket.close();
+    }
+    
+    /// 释放监听器资源（显式内存管理 - 类似Zig）
+    pub fn drop(self: *TcpListener) void {
+        self.socket.drop();
+    }
+}
+
+// ============================================================================
+// TCP流实现 (类似V和Nim)
+// ============================================================================
+
+/// TCP流实现
+impl TcpStream {
+    /// 连接到远程地址
+    pub fn connect(addr: SocketAddr) Result<TcpStream, NetError> {
+        let socket_result = Socket.new(SocketType.Tcp);
+        if (socket_result.is_err()) {
+            return Result.Err(socket_result.unwrap_err());
+        }
+        
+        let mut socket = socket_result.unwrap();
+        let connect_result = socket.connect(addr);
+        if (connect_result.is_err()) {
+            return Result.Err(connect_result.unwrap_err());
+        }
+        
+        return Result.Ok(TcpStream {
+            socket: socket
+        });
+    }
+    
+    /// 发送数据
+    pub fn write(self: *TcpStream, data: []byte) Result<int, NetError> {
+        return self.socket.send(data);
+    }
+    
+    /// 读取数据
+    pub fn read(self: *TcpStream, buffer: []byte) Result<int, NetError> {
+        return self.socket.recv(buffer);
+    }
+    
+    /// 关闭连接
+    pub fn close(self: *TcpStream) Result<void, NetError> {
+        return self.socket.close();
+    }
+    
+    /// 获取对端地址
+    pub fn peer_addr(self: *TcpStream) Result<SocketAddr, NetError> {
+        // TODO: 实现获取对端地址
+        return Result.Ok(SocketAddr {
+            ip: IpAddr.localhost(),
+            port: 80
+        });
+    }
+    
+    /// 获取本地地址
+    pub fn local_addr(self: *TcpStream) Result<SocketAddr, NetError> {
+        // TODO: 实现获取本地地址
+        return Result.Ok(SocketAddr {
+            ip: IpAddr.localhost(),
+            port: 8080
+        });
+    }
+    
+    /// 释放流资源（显式内存管理 - 类似Zig）
+    pub fn drop(self: *TcpStream) void {
+        self.socket.drop();
+    }
+}
+
+// ============================================================================
+// UDP套接字实现 (类似V和Nim)
+// ============================================================================
+
+/// UDP套接字实现
+impl UdpSocket {
+    /// 创建UDP套接字
+    pub fn new() Result<UdpSocket, NetError> {
+        let socket_result = Socket.new(SocketType.Udp);
+        if (socket_result.is_err()) {
+            return Result.Err(socket_result.unwrap_err());
+        }
+        
+        return Result.Ok(UdpSocket {
+            socket: socket_result.unwrap()
+        });
+    }
+    
+    /// 绑定到指定地址
+    pub fn bind(self: *UdpSocket, addr: SocketAddr) Result<void, NetError> {
+        return self.socket.bind(addr);
+    }
+    
+    /// 发送数据到指定地址
+    pub fn send_to(self: *UdpSocket, data: []byte, addr: SocketAddr) Result<int, NetError> {
+        // TODO: 实现发送逻辑
+        return self.socket.send(data);
+    }
+    
+    /// 接收数据和发送方地址
+    pub fn recv_from(self: *UdpSocket, buffer: []byte) Result<(int, SocketAddr), NetError> {
+        let bytes_received = self.socket.recv(buffer);
+        if (bytes_received.is_err()) {
+            return Result.Err(bytes_received.unwrap_err());
+        }
+        
+        // TODO: 获取发送方地址
+        let sender_addr = SocketAddr {
+            ip: IpAddr.localhost(),
+            port: 8080
+        };
+        
+        return Result.Ok((bytes_received.unwrap(), sender_addr));
+    }
+    
+    /// 关闭套接字
+    pub fn close(self: *UdpSocket) Result<void, NetError> {
+        return self.socket.close();
+    }
+    
+    /// 释放套接字资源（显式内存管理 - 类似Zig）
+    pub fn drop(self: *UdpSocket) void {
+        self.socket.drop();
+    }
+}
+
+// ============================================================================
+// DNS解析 (类似V和Nim)
+// ============================================================================
+
+/// 解析主机名到IP地址
+pub fn resolve_host(host: string) Result<Vec<IpAddr>, NetError> {
+    // TODO: 实现DNS解析
+    let mut addrs = Vec<IpAddr>.new();
+    addrs.push(IpAddr.localhost());
+    return Result.Ok(addrs);
+}
+
+/// 解析主机名到套接字地址
+pub fn resolve_socket_addr(host: string, port: int) Result<Vec<SocketAddr>, NetError> {
+    let ip_result = resolve_host(host);
+    if (ip_result.is_err()) {
+        return Result.Err(ip_result.unwrap_err());
+    }
+    
+    let ips = ip_result.unwrap();
+    let mut addrs = Vec<SocketAddr>.new();
+    
+    for (var i = 0; i < ips.len(); i = i + 1) {
+        let ip = ips.get(i).unwrap();
+        addrs.push(SocketAddr {
+            ip: ip,
+            port: port
+        });
+    }
+    
+    return Result.Ok(addrs);
+}
+
+// ============================================================================
+// URL解析 (类似V和Nim)
+// ============================================================================
+
+/// URL结构
+pub struct Url {
+    scheme: string,
+    host: string,
+    port: int,
+    path: string,
+    query: string,
+    fragment: string
+}
+
+/// 解析URL
+pub fn parse_url(url_str: string) Result<Url, NetError> {
+    // TODO: 实现URL解析
+    return Result.Ok(Url {
+        scheme: "http",
+        host: "localhost",
+        port: 80,
+        path: "/",
+        query: "",
+        fragment: ""
+    });
+}
+
+// ============================================================================
+// HTTP客户端 (类似V和Nim)
+// ============================================================================
+
+/// HTTP方法
+enum HttpMethod {
+    Get,
+    Post,
+    Put,
+    Delete,
+    Head,
+    Options,
+    Patch
+}
+
+/// HTTP请求
+pub struct HttpRequest {
+    method: HttpMethod,
+    url: Url,
+    headers: Vec<(string, string)>,
+    body: []byte
+}
+
+/// HTTP响应
+pub struct HttpResponse {
+    status_code: int,
+    headers: Vec<(string, string)>,
+    body: []byte
+}
+
+/// HTTP客户端（显式内存管理）
+pub struct HttpClient {
+    // TODO: 实现HTTP客户端
+}
+
+/// HTTP客户端实现
+impl HttpClient {
+    /// 创建新的HTTP客户端
+    pub fn new() HttpClient {
+        return HttpClient {};
+    }
+    
+    /// 发送HTTP请求
+    pub fn send(self: *HttpClient, request: HttpRequest) Result<HttpResponse, NetError> {
+        // TODO: 实现HTTP请求发送
+        return Result.Ok(HttpResponse {
+            status_code: 200,
+            headers: Vec<(string, string)>.new(),
+            body: []
+        });
+    }
+    
+    /// 发送GET请求
+    pub fn get(self: *HttpClient, url: string) Result<HttpResponse, NetError> {
+        let url_result = parse_url(url);
+        if (url_result.is_err()) {
+            return Result.Err(url_result.unwrap_err());
+        }
+        
+        let request = HttpRequest {
+            method: HttpMethod.Get,
+            url: url_result.unwrap(),
+            headers: Vec<(string, string)>.new(),
+            body: []
+        };
+        
+        return self.send(request);
+    }
+    
+    /// 发送POST请求
+    pub fn post(self: *HttpClient, url: string, body: []byte) Result<HttpResponse, NetError> {
+        let url_result = parse_url(url);
+        if (url_result.is_err()) {
+            return Result.Err(url_result.unwrap_err());
+        }
+        
+        let request = HttpRequest {
+            method: HttpMethod.Post,
+            url: url_result.unwrap(),
+            headers: Vec<(string, string)>.new(),
+            body: body
+        };
+        
+        return self.send(request);
+    }
+    
+    /// 释放HTTP客户端资源（显式内存管理 - 类似Zig）
+    pub fn drop(self: *HttpClient) void {
+        // 释放客户端资源
+    }
+}

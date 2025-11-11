@@ -1,0 +1,90 @@
+// AZ语言综合测试程序
+// 测试所有已实现的功能
+
+fn test_basic() int {
+    println("=== 测试基础功能 ===");
+    
+    // 变量声明
+    let x = 10;
+    var y = 20;
+    y = y + 5;
+    
+    println("x = " + x);
+    println("y = " + y);
+    
+    return 0;
+}
+
+fn test_control_flow() int {
+    println("=== 测试控制流 ===");
+    
+    // if语句
+    let x = 15;
+    if (x > 10) {
+        println("x大于10");
+    } else {
+        println("x小于等于10");
+    }
+    
+    // while循环
+    var i = 0;
+    while (i < 3) {
+        println("while: i = " + i);
+        i = i + 1;
+    }
+    
+    return 0;
+}
+
+fn test_for_loop() int {
+    println("=== 测试For循环 ===");
+    
+    for (var i = 0; i < 5; i = i + 1) {
+        println("for: i = " + i);
+    }
+    
+    return 0;
+}
+
+fn test_functions() int {
+    println("=== 测试函数 ===");
+    
+    let result = add(3, 5);
+    println("3 + 5 = " + result);
+    
+    let fact = factorial(5);
+    println("5! = " + fact);
+    
+    return 0;
+}
+
+fn add(a: int, b: int) int {
+    return a + b;
+}
+
+fn factorial(n: int) int {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+fn main() int {
+    println("=== AZ语言综合测试 ===");
+    println("");
+    
+    test_basic();
+    println("");
+    
+    test_control_flow();
+    println("");
+    
+    test_for_loop();
+    println("");
+    
+    test_functions();
+    println("");
+    
+    println("=== 所有测试完成 ===");
+    return 0;
+}

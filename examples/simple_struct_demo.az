@@ -1,0 +1,18 @@
+// Simple Struct Demo
+
+import std.io;
+
+struct Point {
+    x: int,
+    y: int,
+}
+
+fn main() int {
+    let point = Point{x: 3, y: 4};
+    println("Point coordinates: (");
+    println(point.x);
+    print(", ");
+    println(point.y);
+    println(")");
+    return 0;
+}

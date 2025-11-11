@@ -1,0 +1,146 @@
+// Match语句测试
+
+import compiler.lexer;
+import compiler.parser;
+import compiler.ast;
+
+// 测试基本match语句
+fn test_basic_match() void {
+    let source = "
+        fn test(x: int) string {
+            match x {
+                0 => return \"zero\",
+                1 => return \"one\",
+                _ => return \"other\"
+            }
+        }
+    ";
+    
+    var lexer = new_lexer(source, "test.az");
+    let tokens_result = tokenize(&lexer);
+    
+    if (tokens_result is Err) {
+        println("❌ 词法分析失败");
+        return;
+    }
+    
+    var parser = new_parser(tokens_result.value, "test.az");
+    let program_result = parse(&parser);
+    
+    if (program_result is Err) {
+        println("❌ 语法分析失败");
+        return;
+    }
+    
+    println("✅ 基本match语句解析成功");
+}
+
+// 测试或模式
+fn test_or_pattern() void {
+    let source = "
+        fn test(x: int) bool {
+            match x {
+                1 | 2 | 3 => return true,
+                _ => return false
+            }
+        }
+    ";
+    
+    var lexer = new_lexer(source, "test.az");
+    let tokens_result = tokenize(&lexer);
+    
+    if (tokens_result is Err) {
+        println("❌ 词法分析失败");
+        return;
+    }
+    
+    var parser = new_parser(tokens_result.value, "test.az");
+    let program_result = parse(&parser);
+    
+    if (program_result is Err) {
+        println("❌ 语法分析失败");
+        return;
+    }
+    
+    println("✅ 或模式解析成功");
+}
+
+// 测试守卫条件
+fn test_guard_condition() void {
+    let source = "
+        fn test(x: int) string {
+            match x {
+                n if n > 0 => return \"positive\",
+                n if n < 0 => return \"negative\",
+                _ => return \"zero\"
+            }
+        }
+    ";
+    
+    var lexer = new_lexer(source, "test.az");
+    let tokens_result = tokenize(&lexer);
+    
+    if (tokens_result is Err) {
+        println("❌ 词法分析失败");
+        return;
+    }
+    
+    var parser = new_parser(tokens_result.value, "test.az");
+    let program_result = parse(&parser);
+    
+    if (program_result is Err) {
+        println("❌ 语法分析失败");
+        return;
+    }
+    
+    println("✅ 守卫条件解析成功");
+}
+
+// 测试代码块
+fn test_block_body() void {
+    let source = "
+        fn test(x: int) int {
+            match x {
+                0 => {
+                    println(\"zero\");
+                    return 0;
+                },
+                _ => {
+                    println(\"other\");
+                    return x * 2;
+                }
+            }
+        }
+    ";
+    
+    var lexer = new_lexer(source, "test.az");
+    let tokens_result = tokenize(&lexer);
+    
+    if (tokens_result is Err) {
+        println("❌ 词法分析失败");
+        return;
+    }
+    
+    var parser = new_parser(tokens_result.value, "test.az");
+    let program_result = parse(&parser);
+    
+    if (program_result is Err) {
+        println("❌ 语法分析失败");
+        return;
+    }
+    
+    println("✅ 代码块解析成功");
+}
+
+// 主函数
+fn main() int {
+    println("=== Match语句测试 ===");
+    
+    test_basic_match();
+    test_or_pattern();
+    test_guard_condition();
+    test_block_body();
+    
+    println("\n所有测试完成！");
+    return 0;
+}

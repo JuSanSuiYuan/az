@@ -1,0 +1,326 @@
+// std.error - 错误处理模块
+// 综合Zig、C3、Rust、Swift和Erlang的优点设计
+module std.error;
+
+// ============================================================================
+// 错误类型
+// ============================================================================
+
+/// 错误信息结构体
+/// 结合Rust的错误类型系统和Erlang的错误描述方式
+struct Error {
+    message: string,
+    code: int,
+    kind: ErrorKind,  // 错误类型（类似Rust）
+    stack_trace: string,  // 调用栈信息（类似Erlang）
+}
+
+/// 错误类型枚举（类似Rust）
+enum ErrorKind {
+    IoError,
+    ParseError,
+    NetworkError,
+    SystemError,
+    CustomError,
+}
+
+/// 创建新错误（类似C3的简洁性）
+fn new(message: string) Error {
+    return Error{
+        message: message,
+        code: -1,
+        kind: ErrorKind.CustomError,
+        stack_trace: "",  // 在运行时填充
+    };
+}
+
+/// 创建带错误码的错误（类似C3的简洁性）
+fn with_code(message: string, code: int) Error {
+    return Error{
+        message: message,
+        code: code,
+        kind: ErrorKind.CustomError,
+        stack_trace: "",
+    };
+}
+
+/// 创建特定类型的错误（类似Rust的错误分类）
+fn with_kind(message: string, kind: ErrorKind) Error {
+    return Error{
+        message: message,
+        code: -1,
+        kind: kind,
+        stack_trace: "",
+    };
+}
+
+/// 获取错误信息（类似Zig的直接访问）
+fn message(self: Error) string {
+    return self.message;
+}
+
+/// 获取错误码（类似C3的简洁性）
+fn code(self: Error) int {
+    return self.code;
+}
+
+/// 获取错误类型（类似Rust的错误分类）
+fn kind(self: Error) ErrorKind {
+    return self.kind;
+}
+
+/// 获取调用栈信息（类似Erlang的错误处理）
+fn stack_trace(self: Error) string {
+    return self.stack_trace;
+}
+
+// ============================================================================
+// Result类型（类似Rust）
+// ============================================================================
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+// 检查是否成功（类似Rust）
+fn is_ok<T, E>(self: Result<T, E>) bool {
+    match self {
+        Ok(_) => return true,
+        Err(_) => return false,
+    }
+}
+
+// 检查是否失败（类似Rust）
+fn is_err<T, E>(self: Result<T, E>) bool {
+    match self {
+        Ok(_) => return false,
+        Err(_) => return true,
+    }
+}
+
+// 解包成功值（不安全，类似Rust）
+fn unwrap<T, E>(self: Result<T, E>) T {
+    match self {
+        Ok(value) => return value,
+        Err(err) => {
+            panic_with_error("unwrap失败", err);
+        }
+    }
+}
+
+// 解包错误值（不安全，类似Rust）
+fn unwrap_err<T, E>(self: Result<T, E>) E {
+    match self {
+        Ok(_) => panic("unwrap_err失败: 结果是Ok"),
+        Err(err) => return err,
+    }
+}
+
+// 安全解包或返回默认值（类似Rust）
+fn unwrap_or<T, E>(self: Result<T, E>, default: T) T {
+    match self {
+        Ok(value) => return value,
+        Err(_) => return default,
+    }
+}
+
+// 安全解包或执行函数（类似Rust）
+fn unwrap_or_else<T, E>(self: Result<T, E>, f: fn(E) T) T {
+    match self {
+        Ok(value) => return value,
+        Err(err) => return f(err),
+    }
+}
+
+// 映射Ok值（类似Rust）
+fn map<T, E, U>(self: Result<T, E>, f: fn(T) U) Result<U, E> {
+    match self {
+        Ok(value) => return Ok(f(value)),
+        Err(err) => return Err(err),
+    }
+}
+
+// 映射Err值（类似Rust）
+fn map_err<T, E, U>(self: Result<T, E>, f: fn(E) U) Result<T, U> {
+    match self {
+        Ok(value) => return Ok(value),
+        Err(err) => return Err(f(err)),
+    }
+}
+
+// 与另一个Result组合（类似Rust）
+fn and<T, E, U>(self: Result<T, E>, other: Result<U, E>) Result<U, E> {
+    match self {
+        Ok(_) => return other,
+        Err(err) => return Err(err),
+    }
+}
+
+// 或者另一个Result（类似Rust）
+fn or<T, E, F>(self: Result<T, E>, other: Result<T, F>) Result<T, F> {
+    match self {
+        Ok(value) => return Ok(value),
+        Err(_) => return other,
+    }
+}
+
+// ============================================================================
+// Option类型（类似Rust）
+// ============================================================================
+
+enum Option<T> {
+    Some(T),
+    None,
+}
+
+// 检查是否有值（类似Rust）
+fn is_some<T>(self: Option<T>) bool {
+    match self {
+        Some(_) => return true,
+        None => return false,
+    }
+}
+
+// 检查是否为空（类似Rust）
+fn is_none<T>(self: Option<T>) bool {
+    match self {
+        Some(_) => return false,
+        None => return true,
+    }
+}
+
+// 解包（不安全，类似Rust）
+fn unwrap_option<T>(self: Option<T>) T {
+    match self {
+        Some(value) => return value,
+        None => panic("unwrap失败: Option是None"),
+    }
+}
+
+// 解包或返回默认值（类似Rust）
+fn unwrap_or_option<T>(self: Option<T>, default: T) T {
+    match self {
+        Some(value) => return value,
+        None => return default,
+    }
+}
+
+// 映射Some值（类似Rust）
+fn map_option<T, U>(self: Option<T>, f: fn(T) U) Option<U> {
+    match self {
+        Some(value) => return Some(f(value)),
+        None => return None,
+    }
+}
+
+// 与另一个Option组合（类似Rust）
+fn and_option<T, U>(self: Option<T>, other: Option<U>) Option<U> {
+    match self {
+        Some(_) => return other,
+        None => return None,
+    }
+}
+
+// ============================================================================
+// 错误处理辅助函数（结合多种语言优点）
+// ============================================================================
+
+// 断言（类似Zig的直接性）
+fn assert(condition: bool, message: string) void {
+    if (!condition) {
+        panic("断言失败: " + message);
+    }
+}
+
+// 断言相等（类似Zig的直接性）
+fn assert_eq<T>(a: T, b: T, message: string) void {
+    if (a != b) {
+        panic("断言失败: " + message + " (期望: " + to_string(a) + ", 实际: " + to_string(b) + ")");
+    }
+}
+
+// 断言不相等（类似Zig的直接性）
+fn assert_ne<T>(a: T, b: T, message: string) void {
+    if (a == b) {
+        panic("断言失败: " + message + " (值: " + to_string(a) + ")");
+    }
+}
+
+// 恐慌（程序终止）- 综合多种语言优点
+fn panic(message: string) void {
+    // 结合各语言优点：
+    // 1. Zig风格：直接输出错误信息并终止程序，简洁高效
+    // 2. C3风格：提供清晰可读的错误信息
+    // 3. Rust风格：使用不可恢复的错误处理方式，明确语义
+    // 4. Swift风格：提供友好的错误信息格式
+    // 5. Erlang风格：提供进程错误信息和监督机制概念
+    
+    println("[PANIC] " + message);
+    
+    // 获取调用栈信息（类似Erlang的错误报告）
+    // TODO: 在运行时实现中提供调用栈跟踪
+    
+    // 终止程序执行（类似Zig的直接性）
+    // 使用系统调用终止程序
+    extern fn exit(code: int) void;
+    exit(1);  // 使用非零退出码表示错误终止
+}
+
+// 带错误信息的恐慌（类似Erlang的错误上下文）
+fn panic_with_error(message: string, err: Error) void {
+    // 提供更详细的错误信息（类似Erlang的错误上下文）
+    println("[PANIC] " + message);
+    println("错误详情: " + err.message);
+    if (err.code != -1) {
+        println("错误码: " + err.code);
+    }
+    
+    // 显示调用栈（类似Erlang的错误报告）
+    if (err.stack_trace != "") {
+        println("调用栈:");
+        println(err.stack_trace);
+    }
+    
+    // 终止程序执行
+    extern fn exit(code: int) void;
+    exit(1);
+}
+
+// 未实现（类似Rust的todo!宏）
+fn todo(message: string) void {
+    panic("TODO: " + message);
+}
+
+// 不可达代码（类似Rust的unreachable!宏）
+fn unreachable(message: string) void {
+    panic("不可达代码: " + message);
+}
+
+// 期望值（类似Rust的expect方法）
+fn expect<T, E>(result: Result<T, E>, message: string) T {
+    match result {
+        Ok(value) => return value,
+        Err(err) => {
+            panic_with_error(message, err);
+        }
+    }
+}
+
+// 期望Some值（类似Rust的expect方法）
+fn expect_option<T>(option: Option<T>, message: string) T {
+    match option {
+        Some(value) => return value,
+        None => panic(message),
+    }
+}
+
+// ============================================================================
+// 辅助函数
+// ============================================================================
+
+// 简单的to_string函数（用于错误信息）
+fn to_string<T>(value: T) string {
+    // TODO: 实现具体类型的字符串转换
+    return "<value>";
+}

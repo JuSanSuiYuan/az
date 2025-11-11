@@ -1,0 +1,380 @@
+// AZ编译器代码生成器
+// 简化版本：生成可执行的中间表示，用于解释执行
+
+import compiler.ast;
+import compiler.error;
+
+// 运行时值
+enum ValueKind {
+    Int,
+    Float,
+    String,
+    Bool,
+    Void,
+    Function
+}
+
+struct Value {
+    kind: ValueKind,
+    int_value: int,
+    float_value: float,
+    string_value: string,
+    bool_value: bool
+}
+
+// 运行时环境
+struct Environment {
+    variables: map<string, Value>,
+    functions: map<string, *Stmt>,
+    parent: *Environment
+}
+
+struct Interpreter {
+    global_env: *Environment,
+    current_env: *Environment,
+    return_value: Value?,
+    has_returned: bool
+}
+
+// 创建解释器
+fn new_interpreter() Interpreter {
+    let global_env = new Environment {
+        variables: {},
+        functions: {},
+        parent: null
+    };
+    
+    return Interpreter {
+        global_env: global_env,
+        current_env: global_env,
+        return_value: null,
+        has_returned: false
+    };
+}
+
+// 执行程序
+fn execute(interpreter: *Interpreter, program: *Program) Result<void> {
+    // 第一遍：收集所有函数
+    for (program.statements) |stmt| {
+        if (stmt.kind == StmtKind.FuncDecl) {
+            interpreter.global_env.functions[stmt.name] = stmt;
+        }
+    }
+    
+    // 查找main函数
+    if (!interpreter.global_env.functions.contains("main")) {
+        return Result.Err(make_error(
+            ErrorKind.SemanticError,
+            "未找到main函数",
+            0, 0, ""
+        ));
+    }
+    
+    // 执行main函数
+    let main_func = interpreter.global_env.functions["main"];
+    let result = execute_function(interpreter, main_func, []);
+    
+    return Result.Ok(void);
+}
+
+// 执行语句
+fn execute_statement(interpreter: *Interpreter, stmt: *Stmt) Result<void> {
+    if (interpreter.has_returned) {
+        return Result.Ok(void);
+    }
+    
+    match stmt.kind {
+        StmtKind.VarDecl => return execute_var_decl(interpreter, stmt),
+        StmtKind.Expression => return execute_expr_stmt(interpreter, stmt),
+        StmtKind.Return => return execute_return(interpreter, stmt),
+        StmtKind.Block => return execute_block(interpreter, stmt),
+        _ => return Result.Ok(void)
+    }
+}
+
+// 执行变量声明
+fn execute_var_decl(interpreter: *Interpreter, stmt: *Stmt) Result<void> {
+    var value = Value { kind: ValueKind.Void };
+    
+    if (stmt.initializer != null) {
+        let result = evaluate_expression(interpreter, stmt.initializer);
+        if (result is Err) return Result.Err(result.error);
+        value = result.value;
+    }
+    
+    interpreter.current_env.variables[stmt.name] = value;
+    return Result.Ok(void);
+}
+
+// 执行表达式语句
+fn execute_expr_stmt(interpreter: *Interpreter, stmt: *Stmt) Result<void> {
+    let result = evaluate_expression(interpreter, stmt.expr);
+    if (result is Err) return Result.Err(result.error);
+    return Result.Ok(void);
+}
+
+// 执行return语句
+fn execute_return(interpreter: *Interpreter, stmt: *Stmt) Result<void> {
+    if (stmt.expr != null) {
+        let result = evaluate_expression(interpreter, stmt.expr);
+        if (result is Err) return Result.Err(result.error);
+        interpreter.return_value = result.value;
+    }
+    interpreter.has_returned = true;
+    return Result.Ok(void);
+}
+
+// 执行代码块
+fn execute_block(interpreter: *Interpreter, stmt: *Stmt) Result<void> {
+    // 创建新环境
+    let block_env = new Environment {
+        variables: {},
+        functions: {},
+        parent: interpreter.current_env
+    };
+    
+    let old_env = interpreter.current_env;
+    interpreter.current_env = block_env;
+    
+    // 执行所有语句
+    for (stmt.statements) |s| {
+        let result = execute_statement(interpreter, s);
+        if (result is Err) {
+            interpreter.current_env = old_env;
+            return result;
+        }
+        if (interpreter.has_returned) break;
+    }
+    
+    // 恢复环境
+    interpreter.current_env = old_env;
+    return Result.Ok(void);
+}
+
+// 执行函数
+fn execute_function(interpreter: *Interpreter, func: *Stmt, args: []Value) Result<Value> {
+    // 创建函数环境
+    let func_env = new Environment {
+        variables: {},
+        functions: {},
+        parent: interpreter.global_env
+    };
+    
+    // 绑定参数
+    for (var i = 0; i < func.params.length; i++) {
+        func_env.variables[func.params[i].name] = args[i];
+    }
+    
+    let old_env = interpreter.current_env;
+    interpreter.current_env = func_env;
+    interpreter.has_returned = false;
+    interpreter.return_value = null;
+    
+    // 执行函数体
+    let result = execute_statement(interpreter, func.body);
+    
+    let return_val = interpreter.return_value;
+    if (return_val == null) {
+        return_val = Value { kind: ValueKind.Void };
+    }
+    
+    // 恢复环境
+    interpreter.current_env = old_env;
+    interpreter.has_returned = false;
+    interpreter.return_value = null;
+    
+    if (result is Err) return Result.Err(result.error);
+    return Result.Ok(return_val);
+}
+
+// 求值表达式
+fn evaluate_expression(interpreter: *Interpreter, expr: *Expr) Result<Value> {
+    match expr.kind {
+        ExprKind.IntLiteral => {
+            return Result.Ok(Value {
+                kind: ValueKind.Int,
+                int_value: expr.int_value
+            });
+        },
+        ExprKind.StringLiteral => {
+            return Result.Ok(Value {
+                kind: ValueKind.String,
+                string_value: expr.string_value
+            });
+        },
+        ExprKind.Identifier => {
+            return evaluate_identifier(interpreter, expr);
+        },
+        ExprKind.Binary => {
+            return evaluate_binary(interpreter, expr);
+        },
+        ExprKind.Call => {
+            return evaluate_call(interpreter, expr);
+        },
+        _ => {
+            return Result.Ok(Value { kind: ValueKind.Void });
+        }
+    }
+}
+
+// 求值标识符
+fn evaluate_identifier(interpreter: *Interpreter, expr: *Expr) Result<Value> {
+    let value = lookup_variable(interpreter.current_env, expr.name);
+    if (value == null) {
+        return Result.Err(make_error(
+            ErrorKind.SemanticError,
+            "未定义的变量: " + expr.name,
+            0, 0, ""
+        ));
+    }
+    return Result.Ok(value);
+}
+
+// 求值二元运算
+fn evaluate_binary(interpreter: *Interpreter, expr: *Expr) Result<Value> {
+    let left_result = evaluate_expression(interpreter, expr.left);
+    if (left_result is Err) return left_result;
+    
+    let right_result = evaluate_expression(interpreter, expr.right);
+    if (right_result is Err) return right_result;
+    
+    let left = left_result.value;
+    let right = right_result.value;
+    
+    // 整数运算
+    if (left.kind == ValueKind.Int && right.kind == ValueKind.Int) {
+        match expr.operator {
+            "+" => return Result.Ok(Value {
+                kind: ValueKind.Int,
+                int_value: left.int_value + right.int_value
+            }),
+            "-" => return Result.Ok(Value {
+                kind: ValueKind.Int,
+                int_value: left.int_value - right.int_value
+            }),
+            "*" => return Result.Ok(Value {
+                kind: ValueKind.Int,
+                int_value: left.int_value * right.int_value
+            }),
+            "/" => return Result.Ok(Value {
+                kind: ValueKind.Int,
+                int_value: left.int_value / right.int_value
+            }),
+            "==" => return Result.Ok(Value {
+                kind: ValueKind.Bool,
+                bool_value: left.int_value == right.int_value
+            }),
+            "!=" => return Result.Ok(Value {
+                kind: ValueKind.Bool,
+                bool_value: left.int_value != right.int_value
+            }),
+            "<" => return Result.Ok(Value {
+                kind: ValueKind.Bool,
+                bool_value: left.int_value < right.int_value
+            }),
+            ">" => return Result.Ok(Value {
+                kind: ValueKind.Bool,
+                bool_value: left.int_value > right.int_value
+            })
+        }
+    }
+    
+    // 字符串连接
+    if (left.kind == ValueKind.String && right.kind == ValueKind.String && expr.operator == "+") {
+        return Result.Ok(Value {
+            kind: ValueKind.String,
+            string_value: left.string_value + right.string_value
+        });
+    }
+    
+    return Result.Err(make_error(
+        ErrorKind.TypeError,
+        "不支持的运算: " + expr.operator,
+        0, 0, ""
+    ));
+}
+
+// 求值函数调用
+fn evaluate_call(interpreter: *Interpreter, expr: *Expr) Result<Value> {
+    // 获取函数名
+    if (expr.callee.kind != ExprKind.Identifier) {
+        return Result.Err(make_error(
+            ErrorKind.SemanticError,
+            "只支持直接函数调用",
+            0, 0, ""
+        ));
+    }
+    
+    let func_name = expr.callee.name;
+    
+    // 内置函数
+    if (func_name == "println" || func_name == "print") {
+        var args: []Value = [];
+        for (expr.arguments) |arg| {
+            let result = evaluate_expression(interpreter, arg);
+            if (result is Err) return result;
+            args.append(result.value);
+        }
+        
+        for (args) |arg| {
+            match arg.kind {
+                ValueKind.Int => print(arg.int_value),
+                ValueKind.String => print(arg.string_value),
+                ValueKind.Bool => print(arg.bool_value),
+                _ => print("unknown")
+            }
+        }
+        
+        if (func_name == "println") {
+            println("");
+        }
+        
+        return Result.Ok(Value { kind: ValueKind.Void });
+    }
+    
+    // 用户定义函数
+    let func = lookup_function(interpreter.global_env, func_name);
+    if (func == null) {
+        return Result.Err(make_error(
+            ErrorKind.SemanticError,
+            "未定义的函数: " + func_name,
+            0, 0, ""
+        ));
+    }
+    
+    // 求值参数
+    var args: []Value = [];
+    for (expr.arguments) |arg| {
+        let result = evaluate_expression(interpreter, arg);
+        if (result is Err) return result;
+        args.append(result.value);
+    }
+    
+    return execute_function(interpreter, func, args);
+}
+
+// 查找变量
+fn lookup_variable(env: *Environment, name: string) Value? {
+    if (env.variables.contains(name)) {
+        return env.variables[name];
+    }
+    
+    if (env.parent != null) {
+        return lookup_variable(env.parent, name);
+    }
+    
+    return null;
+}
+
+// 查找函数
+fn lookup_function(env: *Environment, name: string) *Stmt? {
+    if (env.functions.contains(name)) {
+        return env.functions[name];
+    }
+    
+    if (env.parent != null) {
+        return lookup_function(env.parent, name);
+    }
+    
+    return null;
+}

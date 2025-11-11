@@ -1,0 +1,50 @@
+// 简单测试程序
+import std.io;
+
+fn test_arithmetic() void {
+    let a = 10;
+    let b = 5;
+    
+    println("算术运算测试:");
+    print("10 + 5 = ");
+    println(a + b);
+    
+    print("10 - 5 = ");
+    println(a - b);
+    
+    print("10 * 5 = ");
+    println(a * b);
+    
+    print("10 / 5 = ");
+    println(a / b);
+}
+
+fn test_comparison() void {
+    println("比较运算测试:");
+    
+    if (10 > 5) {
+        println("10 > 5: true");
+    }
+    
+    if (5 < 10) {
+        println("5 < 10: true");
+    }
+    
+    if (10 == 10) {
+        println("10 == 10: true");
+    }
+}
+
+fn main() int {
+    println("=== AZ编译器测试 ===");
+    println("");
+    
+    test_arithmetic();
+    println("");
+    
+    test_comparison();
+    println("");
+    
+    println("=== 测试完成 ===");
+    return 0;
+}

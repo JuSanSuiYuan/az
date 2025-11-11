@@ -1,0 +1,300 @@
+// std.actor.runtime - Actor运行时模块
+// 提供Actor运行时支持
+module std.actor.runtime;
+
+import std.actor.{Actor, ActorId, ActorRef, ActorSystem, Message, Result, Error};
+import std.collections.{Vec, HashMap};
+import std.time;
+import std.mem;
+
+// ============================================================================
+// Actor运行时核心组件
+// ============================================================================
+
+// 消息邮箱 - 存储待处理的消息
+struct Mailbox {
+    messages: Vec<*Message>,
+    is_processing: bool,
+}
+
+// Actor实例 - 运行时的Actor实例
+struct ActorInstance {
+    actor: *Actor,
+    id: ActorId,
+    state: ActorState,
+    mailbox: Mailbox,
+    last_access_time: time.Time,
+    activation_time: time.Time,
+}
+
+// Actor运行时管理器
+struct RuntimeManager {
+    // 活跃的Actor实例
+    active_actors: HashMap<ActorId, ActorInstance>,
+    
+    // 等待激活的Actor
+    pending_actors: Vec<ActorId>,
+    
+    // 空闲的Actor（可被回收）
+    idle_actors: Vec<ActorId>,
+    
+    // 系统引用
+    system: *ActorSystem,
+}
+
+// ============================================================================
+// 邮箱实现
+// ============================================================================
+
+// 创建新的邮箱
+fn new_mailbox() Mailbox {
+    return Mailbox {
+        messages: Vec.new(),
+        is_processing: false,
+    };
+}
+
+// 向邮箱添加消息
+fn mailbox_push(mailbox: *Mailbox, message: *Message) void {
+    mailbox.messages.push(message);
+}
+
+// 从邮箱获取消息
+fn mailbox_pop(mailbox: *Mailbox) Option<*Message> {
+    if (mailbox.messages.is_empty()) {
+        return Option.None;
+    }
+    return Option.Some(mailbox.messages.pop().unwrap());
+}
+
+// 检查邮箱是否为空
+fn mailbox_is_empty(mailbox: *Mailbox) bool {
+    return mailbox.messages.is_empty();
+}
+
+// 获取邮箱大小
+fn mailbox_size(mailbox: *Mailbox) int {
+    return mailbox.messages.len();
+}
+
+// ============================================================================
+// Actor实例管理
+// ============================================================================
+
+// 创建Actor实例
+fn new_actor_instance(actor: *Actor, id: ActorId) ActorInstance {
+    return ActorInstance {
+        actor: actor,
+        id: id,
+        state: ActorState.Inactive,
+        mailbox: new_mailbox(),
+        last_access_time: time.now(),
+        activation_time: time.now(),
+    };
+}
+
+// 激活Actor实例
+fn activate_instance(instance: *ActorInstance) Result<void, Error> {
+    if (instance.state == ActorState.Active) {
+        return Result.Ok(void);
+    }
+    
+    // 调用Actor的激活方法
+    let result = instance.actor.on_activate();
+    if (result.is_err()) {
+        return result;
+    }
+    
+    instance.state = ActorState.Active;
+    instance.activation_time = time.now();
+    return Result.Ok(void);
+}
+
+// 停用Actor实例
+fn deactivate_instance(instance: *ActorInstance) Result<void, Error> {
+    if (instance.state == ActorState.Inactive) {
+        return Result.Ok(void);
+    }
+    
+    // 调用Actor的停用方法
+    let result = instance.actor.on_deactivate();
+    if (result.is_err()) {
+        return result;
+    }
+    
+    instance.state = ActorState.Inactive;
+    // 清空邮箱
+    instance.mailbox.messages.clear();
+    return Result.Ok(void);
+}
+
+// 处理邮箱中的消息
+fn process_mailbox(instance: *ActorInstance) Result<void, Error> {
+    if (instance.state != ActorState.Active) {
+        return Result.Err(Error.new("Actor未激活"));
+    }
+    
+    if (instance.mailbox.is_processing) {
+        return Result.Ok(void); // 避免重入
+    }
+    
+    instance.mailbox.is_processing = true;
+    
+    // 处理所有消息
+    while (!mailbox_is_empty(&instance.mailbox)) {
+        let message = mailbox_pop(&instance.mailbox);
+        if (message.is_some()) {
+            let msg = message.unwrap();
+            let result = instance.actor.handle_message(msg);
+            if (result.is_err()) {
+                // 记录错误但继续处理其他消息
+                // TODO: 实现错误处理策略
+            }
+        }
+    }
+    
+    instance.mailbox.is_processing = false;
+    instance.last_access_time = time.now();
+    return Result.Ok(void);
+}
+
+// ============================================================================
+// 运行时管理器实现
+// ============================================================================
+
+// 创建运行时管理器
+fn new_runtime_manager(system: *ActorSystem) RuntimeManager {
+    return RuntimeManager {
+        active_actors: HashMap.new(),
+        pending_actors: Vec.new(),
+        idle_actors: Vec.new(),
+        system: system,
+    };
+}
+
+// 获取或创建Actor实例
+fn get_or_create_actor(manager: *RuntimeManager, actor_id: ActorId) Result<*ActorInstance, Error> {
+    // 检查是否已存在活跃实例
+    let existing = manager.active_actors.get(actor_id);
+    if (existing.is_some()) {
+        return Result.Ok(existing.unwrap());
+    }
+    
+    // 检查是否在等待激活队列中
+    if (manager.pending_actors.contains(actor_id)) {
+        return Result.Err(Error.new("Actor正在等待激活"));
+    }
+    
+    // 添加到等待激活队列
+    manager.pending_actors.push(actor_id);
+    return Result.Err(Error.new("Actor已加入激活队列"));
+}
+
+// 激活Actor
+fn activate_actor_runtime(manager: *RuntimeManager, actor_id: ActorId, actor: *Actor) Result<void, Error> {
+    // 从等待队列中移除
+    manager.pending_actors.remove(actor_id);
+    
+    // 创建实例
+    let instance = new_actor_instance(actor, actor_id);
+    let activate_result = activate_instance(&instance);
+    if (activate_result.is_err()) {
+        return activate_result;
+    }
+    
+    // 添加到活跃Actor列表
+    manager.active_actors.insert(actor_id, instance);
+    return Result.Ok(void);
+}
+
+// 停用Actor
+fn deactivate_actor_runtime(manager: *RuntimeManager, actor_id: ActorId) Result<void, Error> {
+    let instance = manager.active_actors.get(actor_id);
+    if (instance.is_none()) {
+        return Result.Ok(void); // Actor不存在，无需停用
+    }
+    
+    let inst = instance.unwrap();
+    let deactivate_result = deactivate_instance(inst);
+    if (deactivate_result.is_err()) {
+        return deactivate_result;
+    }
+    
+    // 从活跃列表中移除
+    manager.active_actors.remove(actor_id);
+    
+    // 添加到空闲列表
+    manager.idle_actors.push(actor_id);
+    return Result.Ok(void);
+}
+
+// 发送消息到Actor
+fn send_message_runtime(manager: *RuntimeManager, actor_id: ActorId, message: *Message) Result<void, Error> {
+    // 获取或创建Actor实例
+    let result = get_or_create_actor(manager, actor_id);
+    if (result.is_err()) {
+        // 如果Actor不存在，将消息暂存
+        // TODO: 实现消息暂存机制
+        return result;
+    }
+    
+    let instance = result.unwrap();
+    
+    // 将消息添加到邮箱
+    mailbox_push(&instance.mailbox, message);
+    
+    // 触发消息处理
+    return process_mailbox(instance);
+}
+
+// ============================================================================
+// 后台任务和清理
+// ============================================================================
+
+// 清理空闲的Actor
+fn cleanup_idle_actors(manager: *RuntimeManager) void {
+    let now = time.now();
+    let idle_timeout = time.duration_from_millis(manager.system.config.idle_timeout_ms);
+    let timeout_threshold = time.time_sub(now, idle_timeout);
+    
+    // 遍历空闲Actor列表
+    for (var i = 0; i < manager.idle_actors.len(); ) {
+        let actor_id = manager.idle_actors.get(i);
+        let instance = manager.active_actors.get(actor_id);
+        
+        if (instance.is_some()) {
+            let inst = instance.unwrap();
+            if (time.time_less(inst.last_access_time, timeout_threshold)) {
+                // 超时，彻底移除
+                manager.active_actors.remove(actor_id);
+                manager.idle_actors.remove_at(i);
+                // TODO: 释放Actor资源
+            } else {
+                i = i + 1;
+            }
+        } else {
+            // 实例不存在，从空闲列表移除
+            manager.idle_actors.remove_at(i);
+        }
+    }
+}
+
+// 处理等待激活的Actor
+fn process_pending_actors(manager: *RuntimeManager) void {
+    // TODO: 实现Actor激活逻辑
+    // 这里应该根据系统配置和当前负载情况来决定是否激活Actor
+}
+
+// 运行时主循环
+fn runtime_loop(manager: *RuntimeManager) void {
+    while (manager.system.is_running) {
+        // 处理等待激活的Actor
+        process_pending_actors(manager);
+        
+        // 清理空闲Actor
+        cleanup_idle_actors(manager);
+        
+        // TODO: 添加适当的延迟以避免忙等待
+        time.sleep_millis(100);
+    }
+}

@@ -1,0 +1,13 @@
+// Struct Definition Only Demo
+
+import std.io;
+
+struct Point {
+    x: int,
+    y: int,
+}
+
+fn main() int {
+    println("Struct definition only demo");
+    return 0;
+}

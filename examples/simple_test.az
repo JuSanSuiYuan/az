@@ -1,0 +1,29 @@
+// 简单测试 - 用于验证C代码生成
+
+fn add(a: int, b: int) int {
+    return a + b;
+}
+
+fn multiply(a: int, b: int) int {
+    return a * b;
+}
+
+fn factorial(n: int) int {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+fn main() int {
+    println("AZ Language - Simple Test");
+    
+    let x = 10;
+    let y = 20;
+    let sum = add(x, y);
+    let product = multiply(x, y);
+    let fact5 = factorial(5);
+    
+    println("Test completed!");
+    return 0;
+}

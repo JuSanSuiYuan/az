@@ -1,0 +1,652 @@
+// std.actor.lifecycle - Actor生命周期管理模块
+// 提供Actor生命周期管理和监控支持
+module std.actor.lifecycle;
+
+import std.actor.{ActorId, Actor, ActorState, Result, Error, ActorError};
+import std.actor.runtime.{RuntimeManager, ActorInstance, activate_instance, deactivate_instance};
+import std.actor.state.{ActorStateManager, ActorStateInfo};
+import std.collections.{HashMap, Vec, Queue};
+import std.time;
+import std.mem;
+import std.string;
+
+// ============================================================================
+// 生命周期管理相关类型定义
+// ============================================================================
+
+// Actor生命周期阶段
+enum ActorLifecyclePhase {
+    Created,        // 已创建
+    Activating,     // 激活中
+    Active,         // 活跃
+    Deactivating,   // 停用中
+    Inactive,       // 非活跃
+    Terminated,     // 已终止
+    Error,          // 错误状态
+}
+
+// 生命周期事件
+enum LifecycleEvent {
+    Created(ActorId),           // Actor已创建
+    ActivationStarted(ActorId), // 激活开始
+    Activated(ActorId),         // 已激活
+    DeactivationStarted(ActorId), // 停用开始
+    Deactivated(ActorId),       // 已停用
+    Terminated(ActorId),        // 已终止
+    Error(ActorId, Error),      // 发生错误
+}
+
+// 生命周期监听器
+interface LifecycleListener {
+    fn on_lifecycle_event(self: *Self, event: LifecycleEvent) void;
+}
+
+// Actor生命周期信息
+struct ActorLifecycleInfo {
+    actor_id: ActorId,
+    phase: ActorLifecyclePhase,
+    created_time: time.Time,
+    activated_time: time.Time,
+    deactivated_time: time.Time,
+    terminated_time: time.Time,
+    last_error: Option<Error>,
+    activation_count: int,
+    deactivation_count: int,
+    message_count: int,
+    error_count: int,
+}
+
+// 生命周期配置
+struct LifecycleConfig {
+    activation_timeout_ms: int,     // 激活超时时间
+    deactivation_timeout_ms: int,   // 停用超时时间
+    max_activation_attempts: int,   // 最大激活尝试次数
+    auto_terminate_on_error: bool,  // 错误时自动终止
+    grace_period_ms: int,           // 优雅停机时间
+}
+
+// Actor工厂接口
+interface ActorFactory<T: Actor> {
+    fn create_actor(self: *Self, actor_id: ActorId) Result<T, Error>;
+}
+
+// ============================================================================
+// 生命周期管理器
+// ============================================================================
+
+struct LifecycleManager {
+    // 生命周期信息存储
+    lifecycle_infos: HashMap<ActorId, ActorLifecycleInfo>,
+    
+    // 生命周期监听器
+    listeners: Vec<*LifecycleListener>,
+    
+    // 运行时管理器
+    runtime_manager: *RuntimeManager,
+    
+    // 状态管理器
+    state_manager: *ActorStateManager,
+    
+    // 配置
+    config: LifecycleConfig,
+    
+    // 等待激活队列
+    activation_queue: Queue<ActorId>,
+    
+    // 等待停用队列
+    deactivation_queue: Queue<ActorId>,
+}
+
+// ============================================================================
+// 生命周期信息管理
+// ============================================================================
+
+// 创建Actor生命周期信息
+fn new_actor_lifecycle_info(actor_id: ActorId) ActorLifecycleInfo {
+    return ActorLifecycleInfo {
+        actor_id: actor_id,
+        phase: ActorLifecyclePhase.Created,
+        created_time: time.now(),
+        activated_time: time.Time { seconds: 0, nanos: 0 },
+        deactivated_time: time.Time { seconds: 0, nanos: 0 },
+        terminated_time: time.Time { seconds: 0, nanos: 0 },
+        last_error: Option.None,
+        activation_count: 0,
+        deactivation_count: 0,
+        message_count: 0,
+        error_count: 0,
+    };
+}
+
+// 更新生命周期信息
+fn (self: *ActorLifecycleInfo) update_phase(new_phase: ActorLifecyclePhase) void {
+    self.phase = new_phase;
+    
+    let now = time.now();
+    match new_phase {
+        ActorLifecyclePhase.Activated => {
+            self.activated_time = now;
+            self.activation_count = self.activation_count + 1;
+        },
+        ActorLifecyclePhase.Deactivated => {
+            self.deactivated_time = now;
+            self.deactivation_count = self.deactivation_count + 1;
+        },
+        ActorLifecyclePhase.Terminated => {
+            self.terminated_time = now;
+        },
+        ActorLifecyclePhase.Error => {
+            // 错误状态由record_error方法处理
+        },
+        _ => {
+            // 其他状态不需要特殊处理
+        }
+    }
+}
+
+// 记录错误
+fn (self: *ActorLifecycleInfo) record_error(error: Error) void {
+    self.phase = ActorLifecyclePhase.Error;
+    self.last_error = Option.Some(error);
+    self.error_count = self.error_count + 1;
+}
+
+// 记录消息处理
+fn (self: *ActorLifecycleInfo) record_message_processed() void {
+    self.message_count = self.message_count + 1;
+}
+
+// 检查Actor是否超时
+fn (self: *ActorLifecycleInfo, timeout_ms: int) bool {
+    // 只有活跃状态的Actor才可能超时
+    if (self.phase != ActorLifecyclePhase.Active) {
+        return false;
+    }
+    
+    let now = time.now();
+    let timeout_duration = time.duration_from_millis(timeout_ms);
+    let timeout_threshold = time.time_sub(now, timeout_duration);
+    
+    return time.time_less(self.activated_time, timeout_threshold);
+}
+
+// 获取Actor运行时间
+fn (self: *ActorLifecycleInfo) get_uptime() time.Duration {
+    if (self.phase == ActorLifecyclePhase.Active) {
+        return time.time_sub(time.now(), self.activated_time);
+    } else if (self.phase == ActorLifecyclePhase.Deactivated && self.activated_time.seconds > 0) {
+        return time.time_sub(self.deactivated_time, self.activated_time);
+    }
+    
+    return time.Duration { seconds: 0, nanos: 0 };
+}
+
+// ============================================================================
+// 生命周期管理器实现
+// ============================================================================
+
+// 创建默认生命周期配置
+fn default_lifecycle_config() LifecycleConfig {
+    return LifecycleConfig {
+        activation_timeout_ms: 30000,      // 30秒
+        deactivation_timeout_ms: 10000,    // 10秒
+        max_activation_attempts: 3,        // 3次尝试
+        auto_terminate_on_error: false,    // 不自动终止
+        grace_period_ms: 5000,             // 5秒优雅停机
+    };
+}
+
+// 创建生命周期管理器
+fn new_lifecycle_manager(
+    runtime_manager: *RuntimeManager,
+    state_manager: *ActorStateManager,
+    config: LifecycleConfig
+) LifecycleManager {
+    return LifecycleManager {
+        lifecycle_infos: HashMap.new(),
+        listeners: Vec.new(),
+        runtime_manager: runtime_manager,
+        state_manager: state_manager,
+        config: config,
+        activation_queue: Queue.new(),
+        deactivation_queue: Queue.new(),
+    };
+}
+
+// 添加生命周期监听器
+fn (self: *LifecycleManager) add_listener(listener: *LifecycleListener) void {
+    self.listeners.push(listener);
+}
+
+// 移除生命周期监听器
+fn (self: *LifecycleManager) remove_listener(listener: *LifecycleListener) void {
+    // TODO: 实现监听器移除逻辑
+}
+
+// 触发生命周期事件
+fn (self: *LifecycleManager) trigger_lifecycle_event(event: LifecycleEvent) void {
+    for (self.listeners) |listener| {
+        listener.on_lifecycle_event(event);
+    }
+}
+
+// 获取Actor生命周期信息
+fn (self: *LifecycleManager) get_lifecycle_info(actor_id: ActorId) Option<ActorLifecycleInfo> {
+    return self.lifecycle_infos.get(actor_id);
+}
+
+// 创建Actor
+fn (self: *LifecycleManager) create_actor<T: Actor>(factory: *ActorFactory<T>, actor_id: ActorId) Result<T, Error> {
+    // 检查Actor是否已存在
+    if (self.lifecycle_infos.contains_key(actor_id)) {
+        return Result.Err(Error.new("Actor已存在"));
+    }
+    
+    // 创建Actor实例
+    let create_result = factory.create_actor(actor_id);
+    if (create_result.is_err()) {
+        return create_result;
+    }
+    
+    let actor = create_result.unwrap();
+    
+    // 创建生命周期信息
+    let lifecycle_info = new_actor_lifecycle_info(actor_id);
+    self.lifecycle_infos.insert(actor_id, lifecycle_info);
+    
+    // 触发创建事件
+    self.trigger_lifecycle_event(LifecycleEvent.Created(actor_id));
+    
+    return Result.Ok(actor);
+}
+
+// 激活Actor
+fn (self: *LifecycleManager) activate_actor<T: Actor>(actor: *T, actor_id: ActorId) Result<void, Error> {
+    // 获取生命周期信息
+    let lifecycle_info = self.lifecycle_infos.get_mut(actor_id);
+    if (lifecycle_info.is_none()) {
+        return Result.Err(Error.new("Actor不存在"));
+    }
+    
+    let mut info = lifecycle_info.unwrap();
+    
+    // 检查当前状态
+    if (info.phase == ActorLifecyclePhase.Active) {
+        return Result.Ok(void); // 已经激活
+    }
+    
+    if (info.phase == ActorLifecyclePhase.Activating) {
+        return Result.Err(Error.new("Actor正在激活中"));
+    }
+    
+    // 更新状态为激活中
+    info.update_phase(ActorLifecyclePhase.Activating);
+    
+    // 触发激活开始事件
+    self.trigger_lifecycle_event(LifecycleEvent.ActivationStarted(actor_id));
+    
+    // 获取运行时实例
+    let runtime_instance = self.runtime_manager.active_actors.get(actor_id);
+    if (runtime_instance.is_none()) {
+        return Result.Err(Error.new("运行时实例不存在"));
+    }
+    
+    let instance = runtime_instance.unwrap();
+    
+    // 激活实例
+    let activate_result = activate_instance(instance);
+    if (activate_result.is_err()) {
+        // 记录错误
+        let error = activate_result.unwrap_err();
+        info.record_error(error);
+        self.trigger_lifecycle_event(LifecycleEvent.Error(actor_id, error));
+        
+        // 检查是否需要自动终止
+        if (self.config.auto_terminate_on_error) {
+            self.terminate_actor(actor_id);
+        }
+        
+        return Result.Err(error);
+    }
+    
+    // 更新状态为活跃
+    info.update_phase(ActorLifecyclePhase.Active);
+    
+    // 更新状态管理器中的状态
+    self.state_manager.update_actor_state(actor_id, ActorState.Active);
+    
+    // 触发激活事件
+    self.trigger_lifecycle_event(LifecycleEvent.Activated(actor_id));
+    
+    return Result.Ok(void);
+}
+
+// 停用Actor
+fn (self: *LifecycleManager) deactivate_actor(actor_id: ActorId) Result<void, Error> {
+    // 获取生命周期信息
+    let lifecycle_info = self.lifecycle_infos.get_mut(actor_id);
+    if (lifecycle_info.is_none()) {
+        return Result.Err(Error.new("Actor不存在"));
+    }
+    
+    let mut info = lifecycle_info.unwrap();
+    
+    // 检查当前状态
+    if (info.phase == ActorLifecyclePhase.Inactive || info.phase == ActorLifecyclePhase.Terminated) {
+        return Result.Ok(void); // 已经停用或终止
+    }
+    
+    if (info.phase == ActorLifecyclePhase.Deactivating) {
+        return Result.Err(Error.new("Actor正在停用中"));
+    }
+    
+    // 更新状态为停用中
+    info.update_phase(ActorLifecyclePhase.Deactivating);
+    
+    // 触发停用开始事件
+    self.trigger_lifecycle_event(LifecycleEvent.DeactivationStarted(actor_id));
+    
+    // 获取运行时实例
+    let runtime_instance = self.runtime_manager.active_actors.get(actor_id);
+    if (runtime_instance.is_none()) {
+        // 如果运行时实例不存在，直接更新状态
+        info.update_phase(ActorLifecyclePhase.Inactive);
+        self.state_manager.update_actor_state(actor_id, ActorState.Inactive);
+        self.trigger_lifecycle_event(LifecycleEvent.Deactivated(actor_id));
+        return Result.Ok(void);
+    }
+    
+    let instance = runtime_instance.unwrap();
+    
+    // 停用实例
+    let deactivate_result = deactivate_instance(instance);
+    if (deactivate_result.is_err()) {
+        // 记录错误
+        let error = deactivate_result.unwrap_err();
+        info.record_error(error);
+        self.trigger_lifecycle_event(LifecycleEvent.Error(actor_id, error));
+        
+        // 检查是否需要自动终止
+        if (self.config.auto_terminate_on_error) {
+            self.terminate_actor(actor_id);
+        }
+        
+        return Result.Err(error);
+    }
+    
+    // 更新状态为非活跃
+    info.update_phase(ActorLifecyclePhase.Inactive);
+    
+    // 更新状态管理器中的状态
+    self.state_manager.update_actor_state(actor_id, ActorState.Inactive);
+    
+    // 触发停用事件
+    self.trigger_lifecycle_event(LifecycleEvent.Deactivated(actor_id));
+    
+    return Result.Ok(void);
+}
+
+// 终止Actor
+fn (self: *LifecycleManager) terminate_actor(actor_id: ActorId) Result<void, Error> {
+    // 获取生命周期信息
+    let lifecycle_info = self.lifecycle_infos.get_mut(actor_id);
+    if (lifecycle_info.is_none()) {
+        return Result.Err(Error.new("Actor不存在"));
+    }
+    
+    let mut info = lifecycle_info.unwrap();
+    
+    // 如果当前是活跃状态，先停用
+    if (info.phase == ActorLifecyclePhase.Active) {
+        let deactivate_result = self.deactivate_actor(actor_id);
+        if (deactivate_result.is_err()) {
+            // 记录错误但继续终止
+            let error = deactivate_result.unwrap_err();
+            info.record_error(error);
+        }
+    }
+    
+    // 更新状态为已终止
+    info.update_phase(ActorLifecyclePhase.Terminated);
+    
+    // 从运行时管理器中移除
+    self.runtime_manager.active_actors.remove(actor_id);
+    self.runtime_manager.pending_actors.remove(actor_id);
+    self.runtime_manager.idle_actors.remove(actor_id);
+    
+    // 从状态管理器中移除
+    self.state_manager.store.remove_state_info(actor_id);
+    
+    // 触发终止事件
+    self.trigger_lifecycle_event(LifecycleEvent.Terminated(actor_id));
+    
+    return Result.Ok(void);
+}
+
+// 重启Actor
+fn (self: *LifecycleManager) restart_actor<T: Actor>(factory: *ActorFactory<T>, actor_id: ActorId) Result<T, Error> {
+    // 终止Actor
+    let terminate_result = self.terminate_actor(actor_id);
+    if (terminate_result.is_err()) {
+        return Result.Err(terminate_result.unwrap_err());
+    }
+    
+    // 移除生命周期信息
+    self.lifecycle_infos.remove(actor_id);
+    
+    // 重新创建Actor
+    return self.create_actor(factory, actor_id);
+}
+
+// 记录消息处理
+fn (self: *LifecycleManager) record_message_processed(actor_id: ActorId) void {
+    let lifecycle_info = self.lifecycle_infos.get_mut(actor_id);
+    if (lifecycle_info.is_some()) {
+        let mut info = lifecycle_info.unwrap();
+        info.record_message_processed();
+    }
+    
+    // 同时记录到状态管理器
+    self.state_manager.record_message_processed(actor_id);
+}
+
+// 记录错误
+fn (self: *LifecycleManager) record_error(actor_id: ActorId, error: Error) void {
+    let lifecycle_info = self.lifecycle_infos.get_mut(actor_id);
+    if (lifecycle_info.is_some()) {
+        let mut info = lifecycle_info.unwrap();
+        info.record_error(error);
+    }
+    
+    // 同时记录到状态管理器
+    self.state_manager.record_error(actor_id, error);
+    
+    // 触发错误事件
+    self.trigger_lifecycle_event(LifecycleEvent.Error(actor_id, error));
+}
+
+// 获取超时的Actor列表
+fn (self: *LifecycleManager) get_timeout_actors() []ActorId {
+    let mut timeout_actors = Vec.new();
+    
+    for (self.lifecycle_infos.entries()) |entry| {
+        let actor_id = entry.0;
+        let lifecycle_info = entry.1;
+        
+        if (lifecycle_info.check_timeout(self.config.activation_timeout_ms)) {
+            timeout_actors.push(actor_id);
+        }
+    }
+    
+    return timeout_actors.to_array();
+}
+
+// 清理超时的Actor
+fn (self: *LifecycleManager) cleanup_timeout_actors() int {
+    let timeout_actors = self.get_timeout_actors();
+    let mut cleaned_count = 0;
+    
+    for (timeout_actors) |actor_id| {
+        let terminate_result = self.terminate_actor(actor_id);
+        if (terminate_result.is_ok()) {
+            cleaned_count = cleaned_count + 1;
+        }
+    }
+    
+    return cleaned_count;
+}
+
+// 获取生命周期统计信息
+struct LifecycleStats {
+    total_actors: int,
+    created_actors: int,
+    active_actors: int,
+    inactive_actors: int,
+    terminated_actors: int,
+    error_actors: int,
+    total_activations: int,
+    total_deactivations: int,
+    total_messages: int,
+    total_errors: int,
+}
+
+fn (self: *LifecycleManager) get_lifecycle_stats() LifecycleStats {
+    let mut stats = LifecycleStats {
+        total_actors: 0,
+        created_actors: 0,
+        active_actors: 0,
+        inactive_actors: 0,
+        terminated_actors: 0,
+        error_actors: 0,
+        total_activations: 0,
+        total_deactivations: 0,
+        total_messages: 0,
+        total_errors: 0,
+    };
+    
+    for (self.lifecycle_infos.values()) |lifecycle_info| {
+        stats.total_actors = stats.total_actors + 1;
+        stats.total_activations = stats.total_activations + lifecycle_info.activation_count;
+        stats.total_deactivations = stats.total_deactivations + lifecycle_info.deactivation_count;
+        stats.total_messages = stats.total_messages + lifecycle_info.message_count;
+        stats.total_errors = stats.total_errors + lifecycle_info.error_count;
+        
+        match lifecycle_info.phase {
+            ActorLifecyclePhase.Created => {
+                stats.created_actors = stats.created_actors + 1;
+            },
+            ActorLifecyclePhase.Active => {
+                stats.active_actors = stats.active_actors + 1;
+            },
+            ActorLifecyclePhase.Inactive => {
+                stats.inactive_actors = stats.inactive_actors + 1;
+            },
+            ActorLifecyclePhase.Terminated => {
+                stats.terminated_actors = stats.terminated_actors + 1;
+            },
+            ActorLifecyclePhase.Error => {
+                stats.error_actors = stats.error_actors + 1;
+            },
+            _ => {
+                // 其他状态不计入统计
+            }
+        }
+    }
+    
+    return stats;
+}
+
+// 优雅关闭所有Actor
+fn (self: *LifecycleManager) graceful_shutdown() Result<void, Error> {
+    // 将所有活跃的Actor加入停用队列
+    for (self.lifecycle_infos.entries()) |entry| {
+        let actor_id = entry.0;
+        let lifecycle_info = entry.1;
+        
+        if (lifecycle_info.phase == ActorLifecyclePhase.Active) {
+            self.deactivation_queue.enqueue(actor_id);
+        }
+    }
+    
+    // 处理停用队列
+    while (!self.deactivation_queue.is_empty()) {
+        let actor_id = self.deactivation_queue.dequeue().unwrap();
+        let deactivate_result = self.deactivate_actor(actor_id);
+        if (deactivate_result.is_err()) {
+            // 记录错误但继续处理其他Actor
+        }
+    }
+    
+    // 等待优雅停机时间
+    time.sleep_millis(self.config.grace_period_ms);
+    
+    // 终止所有Actor
+    let mut actor_ids = Vec.new();
+    for (self.lifecycle_infos.keys()) |actor_id| {
+        actor_ids.push(actor_id);
+    }
+    
+    for (actor_ids) |actor_id| {
+        self.terminate_actor(actor_id);
+    }
+    
+    return Result.Ok(void);
+}
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+// 生命周期阶段转字符串
+fn lifecycle_phase_to_string(phase: ActorLifecyclePhase) string {
+    match phase {
+        ActorLifecyclePhase.Created => {
+            return "Created";
+        },
+        ActorLifecyclePhase.Activating => {
+            return "Activating";
+        },
+        ActorLifecyclePhase.Active => {
+            return "Active";
+        },
+        ActorLifecyclePhase.Deactivating => {
+            return "Deactivating";
+        },
+        ActorLifecyclePhase.Inactive => {
+            return "Inactive";
+        },
+        ActorLifecyclePhase.Terminated => {
+            return "Terminated";
+        },
+        ActorLifecyclePhase.Error => {
+            return "Error";
+        }
+    }
+}
+
+// 生命周期事件转字符串
+fn lifecycle_event_to_string(event: LifecycleEvent) string {
+    match event {
+        LifecycleEvent.Created(actor_id) => {
+            return "Created: " + actor_id.id;
+        },
+        LifecycleEvent.ActivationStarted(actor_id) => {
+            return "ActivationStarted: " + actor_id.id;
+        },
+        LifecycleEvent.Activated(actor_id) => {
+            return "Activated: " + actor_id.id;
+        },
+        LifecycleEvent.DeactivationStarted(actor_id) => {
+            return "DeactivationStarted: " + actor_id.id;
+        },
+        LifecycleEvent.Deactivated(actor_id) => {
+            return "Deactivated: " + actor_id.id;
+        },
+        LifecycleEvent.Terminated(actor_id) => {
+            return "Terminated: " + actor_id.id;
+        },
+        LifecycleEvent.Error(actor_id, error) => {
+            return "Error: " + actor_id.id + " - " + error.message;
+        }
+    }
+}

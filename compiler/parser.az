@@ -1,0 +1,562 @@
+// AZ编译器语法分析器
+
+import compiler.token;
+import compiler.ast;
+import compiler.error;
+
+struct Parser {
+    tokens: []Token,
+    current: int,
+    filename: string
+}
+
+// 创建语法分析器
+fn new_parser(tokens: []Token, filename: string) Parser {
+    return Parser {
+        tokens: tokens,
+        current: 0,
+        filename: filename
+    };
+}
+
+// 语法分析主函数
+fn parse(parser: *Parser) Result<Program> {
+    var statements: []*Stmt = [];
+    
+    while (!is_at_end(parser)) {
+        let stmt_result = parse_statement(parser);
+        if (stmt_result is Err) {
+            return Result.Err(stmt_result.error);
+        }
+        statements.append(stmt_result.value);
+    }
+    
+    return Result.Ok(Program { statements: statements });
+}
+
+// 解析语句
+fn parse_statement(parser: *Parser) Result<*Stmt> {
+    // import语句
+    if (match_token(parser, TokenType.Import)) {
+        return parse_import(parser);
+    }
+    
+    // 函数声明
+    if (match_token(parser, TokenType.Fn)) {
+        return parse_function(parser);
+    }
+    
+    // 变量声明
+    if (check(parser, TokenType.Let) || check(parser, TokenType.Var)) {
+        return parse_var_declaration(parser);
+    }
+    
+    // return语句
+    if (match_token(parser, TokenType.Return)) {
+        return parse_return(parser);
+    }
+    
+    // if语句
+    if (match_token(parser, TokenType.If)) {
+        return parse_if(parser);
+    }
+    
+    // while语句
+    if (match_token(parser, TokenType.While)) {
+        return parse_while(parser);
+    }
+    
+    // for语句
+    if (match_token(parser, TokenType.For)) {
+        return parse_for(parser);
+    }
+    
+    // match语句
+    if (match_token(parser, TokenType.Match)) {
+        return parse_match(parser);
+    }
+    
+    // 代码块
+    if (check(parser, TokenType.LeftBrace)) {
+        return parse_block(parser);
+    }
+    
+    // 表达式语句
+    return parse_expression_statement(parser);
+}
+
+// 解析函数声明
+fn parse_function(parser: *Parser) Result<*Stmt> {
+    let name_token = consume(parser, TokenType.Identifier, "期望函数名");
+    if (name_token is Err) return Result.Err(name_token.error);
+    
+    consume(parser, TokenType.LeftParen, "期望 '('");
+    
+    var params: []Param = [];
+    if (!check(parser, TokenType.RightParen)) {
+        // 解析参数列表
+        loop {
+            let param_name = consume(parser, TokenType.Identifier, "期望参数名");
+            consume(parser, TokenType.Colon, "期望 ':'");
+            let param_type = consume(parser, TokenType.Identifier, "期望类型名");
+            
+            params.append(Param {
+                name: param_name.value.lexeme,
+                type_name: param_type.value.lexeme
+            });
+            
+            if (!match_token(parser, TokenType.Comma)) break;
+        }
+    }
+    
+    consume(parser, TokenType.RightParen, "期望 ')'");
+    
+    // 返回类型
+    var return_type = "void";
+    if (!check(parser, TokenType.LeftBrace)) {
+        let type_token = consume(parser, TokenType.Identifier, "期望返回类型");
+        return_type = type_token.value.lexeme;
+    }
+    
+    // 函数体
+    let body = parse_block(parser);
+    if (body is Err) return Result.Err(body.error);
+    
+    return Result.Ok(make_func_decl(
+        name_token.value.lexeme,
+        params,
+        return_type,
+        body.value
+    ));
+}
+
+// 解析变量声明
+fn parse_var_declaration(parser: *Parser) Result<*Stmt> {
+    let is_mutable = match_token(parser, TokenType.Var);
+    if (!is_mutable) {
+        advance(parser); // consume 'let'
+    }
+    
+    let name_token = consume(parser, TokenType.Identifier, "期望变量名");
+    if (name_token is Err) return Result.Err(name_token.error);
+    
+    var type_name = "";
+    if (match_token(parser, TokenType.Colon)) {
+        let type_token = consume(parser, TokenType.Identifier, "期望类型名");
+        type_name = type_token.value.lexeme;
+    }
+    
+    var initializer: *Expr = null;
+    if (match_token(parser, TokenType.Equal)) {
+        let expr_result = parse_expression(parser);
+        if (expr_result is Err) return Result.Err(expr_result.error);
+        initializer = expr_result.value;
+    }
+    
+    consume(parser, TokenType.Semicolon, "期望 ';'");
+    
+    return Result.Ok(make_var_decl(
+        name_token.value.lexeme,
+        type_name,
+        is_mutable,
+        initializer
+    ));
+}
+
+// 解析return语句
+fn parse_return(parser: *Parser) Result<*Stmt> {
+    var expr: *Expr = null;
+    if (!check(parser, TokenType.Semicolon)) {
+        let expr_result = parse_expression(parser);
+        if (expr_result is Err) return Result.Err(expr_result.error);
+        expr = expr_result.value;
+    }
+    
+    consume(parser, TokenType.Semicolon, "期望 ';'");
+    return Result.Ok(make_return_stmt(expr));
+}
+
+// 解析代码块
+fn parse_block(parser: *Parser) Result<*Stmt> {
+    consume(parser, TokenType.LeftBrace, "期望 '{'");
+    
+    var statements: []*Stmt = [];
+    while (!check(parser, TokenType.RightBrace) && !is_at_end(parser)) {
+        let stmt_result = parse_statement(parser);
+        if (stmt_result is Err) return Result.Err(stmt_result.error);
+        statements.append(stmt_result.value);
+    }
+    
+    consume(parser, TokenType.RightBrace, "期望 '}'");
+    return Result.Ok(make_block_stmt(statements));
+}
+
+// 解析表达式语句
+fn parse_expression_statement(parser: *Parser) Result<*Stmt> {
+    let expr_result = parse_expression(parser);
+    if (expr_result is Err) return Result.Err(expr_result.error);
+    
+    consume(parser, TokenType.Semicolon, "期望 ';'");
+    return Result.Ok(make_expr_stmt(expr_result.value));
+}
+
+// 解析表达式
+fn parse_expression(parser: *Parser) Result<*Expr> {
+    return parse_logical_or(parser);
+}
+
+// 解析逻辑或
+fn parse_logical_or(parser: *Parser) Result<*Expr> {
+    var left = parse_logical_and(parser);
+    if (left is Err) return left;
+    
+    while (match_token(parser, TokenType.PipePipe)) {
+        let right = parse_logical_and(parser);
+        if (right is Err) return right;
+        left = Result.Ok(make_binary_expr("||", left.value, right.value));
+    }
+    
+    return left;
+}
+
+// 解析逻辑与
+fn parse_logical_and(parser: *Parser) Result<*Expr> {
+    var left = parse_equality(parser);
+    if (left is Err) return left;
+    
+    while (match_token(parser, TokenType.AmpAmp)) {
+        let right = parse_equality(parser);
+        if (right is Err) return right;
+        left = Result.Ok(make_binary_expr("&&", left.value, right.value));
+    }
+    
+    return left;
+}
+
+// 解析相等性
+fn parse_equality(parser: *Parser) Result<*Expr> {
+    var left = parse_comparison(parser);
+    if (left is Err) return left;
+    
+    while (match_token(parser, TokenType.EqualEqual) || match_token(parser, TokenType.BangEqual)) {
+        let op = previous(parser).lexeme;
+        let right = parse_comparison(parser);
+        if (right is Err) return right;
+        left = Result.Ok(make_binary_expr(op, left.value, right.value));
+    }
+    
+    return left;
+}
+
+// 解析比较
+fn parse_comparison(parser: *Parser) Result<*Expr> {
+    var left = parse_term(parser);
+    if (left is Err) return left;
+    
+    while (match_token(parser, TokenType.Less) || match_token(parser, TokenType.LessEqual) ||
+           match_token(parser, TokenType.Greater) || match_token(parser, TokenType.GreaterEqual)) {
+        let op = previous(parser).lexeme;
+        let right = parse_term(parser);
+        if (right is Err) return right;
+        left = Result.Ok(make_binary_expr(op, left.value, right.value));
+    }
+    
+    return left;
+}
+
+// 解析加减
+fn parse_term(parser: *Parser) Result<*Expr> {
+    var left = parse_factor(parser);
+    if (left is Err) return left;
+    
+    while (match_token(parser, TokenType.Plus) || match_token(parser, TokenType.Minus)) {
+        let op = previous(parser).lexeme;
+        let right = parse_factor(parser);
+        if (right is Err) return right;
+        left = Result.Ok(make_binary_expr(op, left.value, right.value));
+    }
+    
+    return left;
+}
+
+// 解析乘除
+fn parse_factor(parser: *Parser) Result<*Expr> {
+    var left = parse_unary(parser);
+    if (left is Err) return left;
+    
+    while (match_token(parser, TokenType.Star) || match_token(parser, TokenType.Slash) ||
+           match_token(parser, TokenType.Percent)) {
+        let op = previous(parser).lexeme;
+        let right = parse_unary(parser);
+        if (right is Err) return right;
+        left = Result.Ok(make_binary_expr(op, left.value, right.value));
+    }
+    
+    return left;
+}
+
+// 解析一元运算
+fn parse_unary(parser: *Parser) Result<*Expr> {
+    if (match_token(parser, TokenType.Bang) || match_token(parser, TokenType.Minus)) {
+        let op = previous(parser).lexeme;
+        let operand = parse_unary(parser);
+        if (operand is Err) return operand;
+        return Result.Ok(new Expr {
+            kind: ExprKind.Unary,
+            operator: op,
+            operand: operand.value
+        });
+    }
+    
+    return parse_postfix(parser);
+}
+
+// 解析后缀表达式（函数调用、数组索引等）
+fn parse_postfix(parser: *Parser) Result<*Expr> {
+    var expr = parse_primary(parser);
+    if (expr is Err) return expr;
+    
+    loop {
+        if (match_token(parser, TokenType.LeftParen)) {
+            // 函数调用
+            var arguments: []*Expr = [];
+            if (!check(parser, TokenType.RightParen)) {
+                loop {
+                    let arg = parse_expression(parser);
+                    if (arg is Err) return arg;
+                    arguments.append(arg.value);
+                    if (!match_token(parser, TokenType.Comma)) break;
+                }
+            }
+            consume(parser, TokenType.RightParen, "期望 ')'");
+            expr = Result.Ok(make_call_expr(expr.value, arguments));
+        } else if (match_token(parser, TokenType.Dot)) {
+            // 成员访问
+            let member = consume(parser, TokenType.Identifier, "期望成员名");
+            expr = Result.Ok(new Expr {
+                kind: ExprKind.Member,
+                object: expr.value,
+                member: member.value.lexeme
+            });
+        } else {
+            break;
+        }
+    }
+    
+    return expr;
+}
+
+// 解析基本表达式
+fn parse_primary(parser: *Parser) Result<*Expr> {
+    // 整数字面量
+    if (match_token(parser, TokenType.IntLiteral)) {
+        let value = string_to_int(previous(parser).lexeme);
+        return Result.Ok(make_int_expr(value));
+    }
+    
+    // 字符串字面量
+    if (match_token(parser, TokenType.StringLiteral)) {
+        return Result.Ok(make_string_expr(previous(parser).lexeme));
+    }
+    
+    // 标识符
+    if (match_token(parser, TokenType.Identifier)) {
+        return Result.Ok(make_identifier_expr(previous(parser).lexeme));
+    }
+    
+    // 括号表达式
+    if (match_token(parser, TokenType.LeftParen)) {
+        let expr = parse_expression(parser);
+        if (expr is Err) return expr;
+        consume(parser, TokenType.RightParen, "期望 ')'");
+        return expr;
+    }
+    
+    return Result.Err(make_error(
+        ErrorKind.ParserError,
+        "期望表达式",
+        peek(parser).line,
+        peek(parser).column,
+        parser.filename
+    ));
+}
+
+// 辅助函数
+fn is_at_end(parser: *Parser) bool {
+    return peek(parser).type == TokenType.Eof;
+}
+
+fn peek(parser: *Parser) Token {
+    return parser.tokens[parser.current];
+}
+
+fn previous(parser: *Parser) Token {
+    return parser.tokens[parser.current - 1];
+}
+
+fn advance(parser: *Parser) Token {
+    if (!is_at_end(parser)) {
+        parser.current += 1;
+    }
+    return previous(parser);
+}
+
+fn check(parser: *Parser, type: TokenType) bool {
+    if (is_at_end(parser)) return false;
+    return peek(parser).type == type;
+}
+
+fn match_token(parser: *Parser, type: TokenType) bool {
+    if (check(parser, type)) {
+        advance(parser);
+        return true;
+    }
+    return false;
+}
+
+fn consume(parser: *Parser, type: TokenType, message: string) Result<Token> {
+    if (check(parser, type)) {
+        return Result.Ok(advance(parser));
+    }
+    
+    let token = peek(parser);
+    return Result.Err(make_error(
+        ErrorKind.ParserError,
+        message,
+        token.line,
+        token.column,
+        parser.filename
+    ));
+}
+
+// 解析match语句
+fn parse_match(parser: *Parser) Result<*Stmt> {
+    // match表达式
+    let expr_result = parse_expression(parser);
+    if (expr_result is Err) return Result.Err(expr_result.error);
+    
+    consume(parser, TokenType.LeftBrace, "期望 '{'");
+    
+    var arms: []MatchArm = [];
+    
+    // 解析match分支
+    while (!check(parser, TokenType.RightBrace) && !is_at_end(parser)) {
+        let arm_result = parse_match_arm(parser);
+        if (arm_result is Err) return Result.Err(arm_result.error);
+        arms.append(arm_result.value);
+    }
+    
+    consume(parser, TokenType.RightBrace, "期望 '}'");
+    
+    return Result.Ok(make_match_stmt(expr_result.value, arms));
+}
+
+// 解析match分支
+fn parse_match_arm(parser: *Parser) Result<MatchArm> {
+    // 解析模式
+    let pattern_result = parse_pattern(parser);
+    if (pattern_result is Err) return Result.Err(pattern_result.error);
+    
+    // 可选的守卫条件
+    var guard: *Expr = null;
+    if (match_token(parser, TokenType.If)) {
+        let guard_result = parse_expression(parser);
+        if (guard_result is Err) return Result.Err(guard_result.error);
+        guard = guard_result.value;
+    }
+    
+    // =>
+    consume(parser, TokenType.Arrow, "期望 '=>'");
+    
+    // 分支体
+    let body_result = parse_match_arm_body(parser);
+    if (body_result is Err) return Result.Err(body_result.error);
+    
+    return Result.Ok(make_match_arm(pattern_result.value, guard, body_result.value));
+}
+
+// 解析match分支体
+fn parse_match_arm_body(parser: *Parser) Result<*Stmt> {
+    // 如果是代码块
+    if (check(parser, TokenType.LeftBrace)) {
+        return parse_block(parser);
+    }
+    
+    // 否则是单个表达式
+    let expr_result = parse_expression(parser);
+    if (expr_result is Err) return Result.Err(expr_result.error);
+    
+    // 可选的逗号
+    match_token(parser, TokenType.Comma);
+    
+    return Result.Ok(make_expr_stmt(expr_result.value));
+}
+
+// 解析模式
+fn parse_pattern(parser: *Parser) Result<*Pattern> {
+    return parse_or_pattern(parser);
+}
+
+// 解析或模式
+fn parse_or_pattern(parser: *Parser) Result<*Pattern> {
+    var patterns: []*Pattern = [];
+    
+    // 解析第一个模式
+    let first_pattern = parse_primary_pattern(parser);
+    if (first_pattern is Err) return first_pattern;
+    patterns.append(first_pattern.value);
+    
+    // 解析后续的 | 模式
+    while (match_token(parser, TokenType.Pipe)) {
+        let next_pattern = parse_primary_pattern(parser);
+        if (next_pattern is Err) return next_pattern;
+        patterns.append(next_pattern.value);
+    }
+    
+    // 如果只有一个模式，直接返回
+    if (patterns.length == 1) {
+        return Result.Ok(patterns[0]);
+    }
+    
+    // 否则返回或模式
+    return Result.Ok(make_or_pattern(patterns));
+}
+
+// 解析基本模式
+fn parse_primary_pattern(parser: *Parser) Result<*Pattern> {
+    // 通配符模式 _
+    if (match_token(parser, TokenType.Identifier)) {
+        let name = previous(parser).lexeme;
+        if (name == "_") {
+            return Result.Ok(make_wildcard_pattern());
+        }
+        return Result.Ok(make_identifier_pattern(name));
+    }
+    
+    // 整数字面量模式
+    if (match_token(parser, TokenType.IntLiteral)) {
+        let value = string_to_int(previous(parser).lexeme);
+        return Result.Ok(make_literal_pattern(make_int_expr(value)));
+    }
+    
+    // 字符串字面量模式
+    if (match_token(parser, TokenType.StringLiteral)) {
+        return Result.Ok(make_literal_pattern(make_string_expr(previous(parser).lexeme)));
+    }
+    
+    // 括号模式
+    if (match_token(parser, TokenType.LeftParen)) {
+        let pattern = parse_pattern(parser);
+        if (pattern is Err) return pattern;
+        consume(parser, TokenType.RightParen, "期望 ')'");
+        return pattern;
+    }
+    
+    return Result.Err(make_error(
+        ErrorKind.ParserError,
+        "期望模式",
+        peek(parser).line,
+        peek(parser).column,
+        parser.filename
+    ));
+}

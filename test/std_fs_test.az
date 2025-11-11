@@ -1,0 +1,92 @@
+// std_fs_test.az - 文件系统标准库测试
+module test.std_fs;
+
+import std.test;
+import std.fs;
+import std.io;
+
+fn test_file_operations() void {
+    let test_file = "test_fs.tmp";
+    
+    // 测试写入文件
+    let write_result = fs.write_string(test_file, "Hello, AZ File System!");
+    test.assert(!write_result.is_err(), "写入文件应该成功");
+
+    // 测试读取文件
+    let read_result = fs.read_to_string(test_file);
+    test.assert(!read_result.is_err(), "读取文件应该成功");
+    test.assert(string.equals(read_result.unwrap(), "Hello, AZ File System!"), "读取的内容应该匹配");
+
+    // 测试文件存在检查
+    test.assert(fs.exists(test_file), "文件应该存在");
+
+    // 测试文件大小
+    let size_result = fs.file_size(test_file);
+    test.assert(!size_result.is_err(), "获取文件大小应该成功");
+    test.assert(size_result.unwrap() > 0, "文件大小应该大于0");
+
+    // 测试文件元数据
+    let meta_result = fs.metadata(test_file);
+    test.assert(!meta_result.is_err(), "获取文件元数据应该成功");
+    let meta = meta_result.unwrap();
+    test.assert(meta.is_file, "应该是文件");
+    test.assert(!meta.is_dir, "不应该目录");
+
+    // 测试复制文件
+    let copy_result = fs.copy(test_file, "test_fs_copy.tmp");
+    test.assert(!copy_result.is_err(), "复制文件应该成功");
+    test.assert(fs.exists("test_fs_copy.tmp"), "复制的文件应该存在");
+
+    // 测试重命名文件
+    let rename_result = fs.rename("test_fs_copy.tmp", "test_fs_renamed.tmp");
+    test.assert(!rename_result.is_err(), "重命名文件应该成功");
+    test.assert(!fs.exists("test_fs_copy.tmp"), "原文件不应该存在");
+    test.assert(fs.exists("test_fs_renamed.tmp"), "重命名后的文件应该存在");
+
+    // 测试删除文件
+    let remove_result = fs.remove_file("test_fs_renamed.tmp");
+    test.assert(!remove_result.is_err(), "删除文件应该成功");
+    test.assert(!fs.exists("test_fs_renamed.tmp"), "删除后的文件不应该存在");
+
+    // 清理测试文件
+    fs.remove_file(test_file);
+}
+
+fn test_path_operations() void {
+    // 测试文件名提取
+    test.assert(string.equals(fs.filename("/path/to/file.txt"), "file.txt"), "filename应该正确提取文件名");
+    test.assert(string.equals(fs.dirname("/path/to/file.txt"), "/path/to"), "dirname应该正确提取目录名");
+
+    // 测试扩展名提取
+    test.assert(string.equals(fs.extension("/path/to/file.txt"), "txt"), "extension应该正确提取扩展名");
+
+    // 测试文件名stem提取
+    test.assert(string.equals(fs.stem("/path/to/file.txt"), "file"), "stem应该正确提取不带扩展名的文件名");
+}
+
+fn test_directory_operations() void {
+    let test_dir = "test_dir";
+    
+    // 测试创建目录
+    let create_result = fs.create_dir(test_dir);
+    test.assert(!create_result.is_err(), "创建目录应该成功");
+
+    // 测试目录存在检查
+    test.assert(fs.is_dir(test_dir), "目录应该存在");
+
+    // 测试读取目录
+    let read_result = fs.read_dir(test_dir);
+    test.assert(!read_result.is_err(), "读取目录应该成功");
+
+    // 测试删除目录
+    let remove_result = fs.remove_dir(test_dir);
+    test.assert(!remove_result.is_err(), "删除目录应该成功");
+    test.assert(!fs.is_dir(test_dir), "删除后的目录不应该存在");
+}
+
+fn main() void {
+    test_file_operations();
+    test_path_operations();
+    test_directory_operations();
+    test.summary();
+}

@@ -1,0 +1,211 @@
+// std.collections - 完整的集合类型模块
+// 版本: v1.0.0
+// 日期: 2025-11-09
+
+module std.collections;
+
+// 导入所有集合类型
+import std.collections.vec.{Vec};
+import std.collections.hashmap.{HashMap};
+import std.collections.hashset.{HashSet};
+
+// 重新导出所有集合类型
+pub use std.collections.vec.{Vec, new as vec_new, with_capacity as vec_with_capacity};
+pub use std.collections.hashmap.{HashMap, new as map_new, with_capacity as map_with_capacity};
+pub use std.collections.hashset.{HashSet, new as set_new, with_capacity as set_with_capacity};
+
+// ============================================================================
+// 便捷函数
+// ============================================================================
+
+/// 创建Vec
+pub fn vec<T>() Vec<T> {
+    return Vec<T>.new();
+}
+
+/// 创建指定容量的Vec
+pub fn vec_with_cap<T>(capacity: int) Vec<T> {
+    return Vec<T>.with_capacity(capacity);
+}
+
+/// 从数组创建Vec
+pub fn vec_from_array<T>(arr: []T) Vec<T> {
+    let len = arr.len();
+    let result = Vec<T>.with_capacity(len);
+    
+    for (var i = 0; i < len; i = i + 1) {
+        result.push(arr[i]);
+    }
+    
+    return result;
+}
+
+/// 创建HashMap
+pub fn map<K, V>() HashMap<K, V> {
+    return HashMap<K, V>.new();
+}
+
+/// 创建指定容量的HashMap
+pub fn map_with_cap<K, V>(capacity: int) HashMap<K, V> {
+    return HashMap<K, V>.with_capacity(capacity);
+}
+
+/// 创建HashSet
+pub fn set<T>() HashSet<T> {
+    return HashSet<T>.new();
+}
+
+/// 创建指定容量的HashSet
+pub fn set_with_cap<T>(capacity: int) HashSet<T> {
+    return HashSet<T>.with_capacity(capacity);
+}
+
+// ============================================================================
+// 集合工具函数
+// ============================================================================
+
+/// 将Vec转换为HashSet（去重）
+pub fn vec_to_set<T>(vec: Vec<T>) HashSet<T> {
+    let result = set<T>();
+    
+    for (var i = 0; i < vec.len(); i = i + 1) {
+        result.insert(vec.get(i).unwrap());
+    }
+    
+    return result;
+}
+
+/// 将HashSet转换为Vec
+pub fn set_to_vec<T>(set: HashSet<T>) Vec<T> {
+    return set.to_vec();
+}
+
+/// 合并两个Vec
+pub fn vec_merge<T>(a: Vec<T>, b: Vec<T>) Vec<T> {
+    let result = Vec<T>.with_capacity(a.len() + b.len());
+    
+    // 添加第一个Vec的元素
+    for (var i = 0; i < a.len(); i = i + 1) {
+        result.push(a.get(i).unwrap());
+    }
+    
+    // 添加第二个Vec的元素
+    for (var i = 0; i < b.len(); i = i + 1) {
+        result.push(b.get(i).unwrap());
+    }
+    
+    return result;
+}
+
+/// 合并两个HashSet
+pub fn set_merge<T>(a: HashSet<T>, b: HashSet<T>) HashSet<T> {
+    let result = a.clone();
+    
+    let b_items = b.to_vec();
+    for (var i = 0; i < b_items.len(); i = i + 1) {
+        result.insert(b_items.get(i).unwrap());
+    }
+    
+    return result;
+}
+
+// ============================================================================
+// 迭代器风格的集合操作
+// ============================================================================
+
+/// 集合迭代器
+pub struct CollectionIterator<T> {
+    collection: Vec<T>,
+    index: int
+}
+
+/// 创建集合迭代器
+pub fn iter<T>(collection: Vec<T>) CollectionIterator<T> {
+    return CollectionIterator<T> {
+        collection: collection,
+        index: 0
+    };
+}
+
+/// 获取下一个元素
+pub fn (self: *CollectionIterator<T>) next() Option<T> {
+    if (self.index >= self.collection.len()) {
+        return Option.None;
+    }
+    
+    let item = self.collection.get(self.index).unwrap();
+    self.index = self.index + 1;
+    return Option.Some(item);
+}
+
+/// 映射操作
+pub fn (self: *CollectionIterator<T>) map<U>(f: fn(T) U) Vec<U> {
+    let result = Vec<U>.with_capacity(self.collection.len());
+    
+    for (var i = 0; i < self.collection.len(); i = i + 1) {
+        result.push(f(self.collection.get(i).unwrap()));
+    }
+    
+    return result;
+}
+
+/// 过滤操作
+pub fn (self: *CollectionIterator<T>) filter(f: fn(T) bool) Vec<T> {
+    let result = Vec<T>.new();
+    
+    for (var i = 0; i < self.collection.len(); i = i + 1) {
+        let item = self.collection.get(i).unwrap();
+        if (f(item)) {
+            result.push(item);
+        }
+    }
+    
+    return result;
+}
+
+/// 折叠操作
+pub fn (self: *CollectionIterator<T>) fold<U>(init: U, f: fn(U, T) U) U {
+    var acc = init;
+    
+    for (var i = 0; i < self.collection.len(); i = i + 1) {
+        acc = f(acc, self.collection.get(i).unwrap());
+    }
+    
+    return acc;
+}
+
+/// 查找满足条件的第一个元素
+pub fn (self: *CollectionIterator<T>) find(f: fn(T) bool) Option<T> {
+    for (var i = 0; i < self.collection.len(); i = i + 1) {
+        let item = self.collection.get(i).unwrap();
+        if (f(item)) {
+            return Option.Some(item);
+        }
+    }
+    
+    return Option.None;
+}
+
+/// 检查是否所有元素都满足条件
+pub fn (self: *CollectionIterator<T>) all(f: fn(T) bool) bool {
+    for (var i = 0; i < self.collection.len(); i = i + 1) {
+        let item = self.collection.get(i).unwrap();
+        if (!f(item)) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+/// 检查是否有元素满足条件
+pub fn (self: *CollectionIterator<T>) any(f: fn(T) bool) bool {
+    for (var i = 0; i < self.collection.len(); i = i + 1) {
+        let item = self.collection.get(i).unwrap();
+        if (f(item)) {
+            return true;
+        }
+    }
+    
+    return false;
+}

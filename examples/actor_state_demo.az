@@ -1,0 +1,154 @@
+// Actor状态管理系统演示程序
+import std.actor.state.{ActorStateManager, ActorState, StateListener, StateChangeEvent};
+import std.actor.{ActorId, new_actor_id, actor_id_to_string};
+import std.time.{now, srand, rand};
+import std.string;
+import std.io.{println};
+
+// 简单的状态监听器实现
+struct SimpleStateListener {
+    name: string,
+}
+
+impl SimpleStateListener {
+    fn new(name: string) SimpleStateListener {
+        return SimpleStateListener { name: name };
+    }
+}
+
+impl StateListener for SimpleStateListener {
+    fn on_state_change(self: *Self, event: StateChangeEvent) void {
+        match event {
+            StateChangeEvent.Activated(actor_id) => {
+                println(self.name + ": Actor " + actor_id_to_string(actor_id) + " 已激活");
+            },
+            StateChangeEvent.Deactivated(actor_id) => {
+                println(self.name + ": Actor " + actor_id_to_string(actor_id) + " 已停用");
+            },
+            StateChangeEvent.Idle(actor_id) => {
+                println(self.name + ": Actor " + actor_id_to_string(actor_id) + " 空闲");
+            },
+            StateChangeEvent.Error(actor_id, error) => {
+                println(self.name + ": Actor " + actor_id_to_string(actor_id) + " 发生错误: " + error.message);
+            }
+        }
+    }
+}
+
+fn main() int {
+    // 初始化随机数种子
+    let current_time = now();
+    srand(current_time.seconds as int);
+    
+    println("=== Actor状态管理系统演示 ===");
+    
+    // 创建状态管理器
+    let (max_states, timeout_ms) = default_state_manager_config();
+    let mut state_manager = new_actor_manager(max_states, timeout_ms);
+    
+    // 创建状态监听器
+    let listener1 = SimpleStateListener.new("监听器1");
+    let listener2 = SimpleStateListener.new("监听器2");
+    
+    // 添加监听器
+    state_manager.add_listener(&listener1);
+    state_manager.add_listener(&listener2);
+    
+    // 创建一些Actor ID
+    let actor_id1 = new_actor_id("user-actor-1");
+    let actor_id2 = new_actor_id("user-actor-2");
+    let actor_id3 = new_actor_id("service-actor-1");
+    
+    println("\n创建Actor状态信息:");
+    
+    // 为Actor创建状态信息
+    let state_info1 = state_manager.create_state_info(actor_id1, ActorState.Inactive);
+    let state_info2 = state_manager.create_state_info(actor_id2, ActorState.Inactive);
+    let state_info3 = state_manager.create_state_info(actor_id3, ActorState.Inactive);
+    
+    // 更新存储
+    state_manager.store.update_state_info(actor_id1, state_info1);
+    state_manager.store.update_state_info(actor_id2, state_info2);
+    state_manager.store.update_state_info(actor_id3, state_info3);
+    
+    println("  已创建3个Actor的状态信息");
+    
+    // 激活Actor
+    println("\n激活Actor:");
+    state_manager.update_actor_state(actor_id1, ActorState.Active);
+    state_manager.update_actor_state(actor_id2, ActorState.Active);
+    
+    // 记录消息处理
+    println("\n记录消息处理:");
+    state_manager.record_message_processed(actor_id1);
+    state_manager.record_message_processed(actor_id1);
+    state_manager.record_message_processed(actor_id2);
+    
+    // 获取Actor状态
+    println("\n获取Actor状态:");
+    let state1 = state_manager.get_actor_state(actor_id1);
+    let state2 = state_manager.get_actor_state(actor_id2);
+    let state3 = state_manager.get_actor_state(actor_id3);
+    
+    if (state1.is_some()) {
+        println("  Actor1状态: " + actor_state_to_string(state1.unwrap()));
+    }
+    
+    if (state2.is_some()) {
+        println("  Actor2状态: " + actor_state_to_string(state2.unwrap()));
+    }
+    
+    if (state3.is_some()) {
+        println("  Actor3状态: " + actor_state_to_string(state3.unwrap()));
+    }
+    
+    // 记录错误
+    println("\n记录错误:");
+    let error = Error.new("模拟错误");
+    state_manager.record_error(actor_id1, error);
+    
+    // 获取状态统计
+    println("\n状态统计:");
+    let stats = state_manager.get_state_stats();
+    println("  总Actor数: " + string.from_int(stats.total_actors));
+    println("  活跃Actor数: " + string.from_int(stats.active_actors));
+    println("  非活跃Actor数: " + string.from_int(stats.inactive_actors));
+    println("  停用中Actor数: " + string.from_int(stats.deactivating_actors));
+    println("  总消息数: " + string.from_int(stats.total_messages));
+    println("  总错误数: " + string.from_int(stats.total_errors));
+    println("  平均消息数: " + string.from_int(stats.average_message_count));
+    
+    // 停用Actor
+    println("\n停用Actor:");
+    state_manager.update_actor_state(actor_id1, ActorState.Deactivating);
+    state_manager.update_actor_state(actor_id1, ActorState.Inactive);
+    
+    println("\n=== 演示完成 ===");
+    
+    return 0;
+}
+
+// 创建状态管理器的包装函数
+fn new_actor_manager(max_states: int, timeout_ms: int) ActorStateManager {
+    return new_actor_state_manager(max_states, timeout_ms);
+}
+
+// 默认状态管理器配置
+fn default_state_manager_config() (int, int) {
+    return (10000, 300000); // 最大10000个状态，默认超时5分钟
+}
+
+// 状态转字符串
+fn actor_state_to_string(state: ActorState) string {
+    match state {
+        ActorState.Active => {
+            return "Active";
+        },
+        ActorState.Inactive => {
+            return "Inactive";
+        },
+        ActorState.Deactivating => {
+            return "Deactivating";
+        }
+    }
+}

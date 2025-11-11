@@ -1,0 +1,95 @@
+# AZ编译器 .gitignore
+
+# 构建目录
+build/
+build-*/
+cmake-build-*/
+
+# CMake生成的文件
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# 编译产物
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+az
+az.exe
+!tools/az/main.cpp
+
+# Python缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# IDE和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-*
+.vs/
+
+# 测试和覆盖率
+*.gcda
+*.gcno
+*.gcov
+coverage/
+htmlcov/
+.coverage
+.pytest_cache/
+
+# 文档生成
+docs/_build/
+docs/.doctrees/
+site/
+
+# 日志文件
+*.log
+
+# 临时文件
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# 包管理器
+node_modules/
+.az_mod/
+az_mod-lock.toml
+
+# 编译数据库
+compile_commands.json
+
+# LLVM/MLIR生成的文件
+*.ll
+*.bc
+*.mlir
+
+# 调试文件
+*.dSYM/
+*.pdb
+
+# 性能分析
+*.prof
+perf.data*
+
+# 其他
+.cache/
+*.user

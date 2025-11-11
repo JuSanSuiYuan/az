@@ -1,0 +1,257 @@
+// std.io - 输入输出模块
+module std.io;
+
+// ============================================================================
+// 基础输出函数
+// ============================================================================
+
+// 打印字符串并换行
+extern fn println(s: string) void;
+
+// 打印字符串不换行
+extern fn print(s: string) void;
+
+// 格式化打印
+fn printf(format: string, args: ...any) void {
+    // 简单实现：直接打印格式字符串
+    // 实际实现应该解析格式字符串并替换占位符
+    println(format);
+}
+
+// ============================================================================
+// 输入函数
+// ============================================================================
+
+// 读取一行输入
+extern fn az_read_line() string;
+
+// 读取整数
+fn read_int() int {
+    let line = az_read_line();
+    return az_string_to_int(line);
+}
+
+// 读取浮点数
+fn read_float() float {
+    let line = az_read_line();
+    return az_string_to_float(line);
+}
+
+// ============================================================================
+// 文件操作
+// ============================================================================
+
+struct File {
+    path: string,
+    handle: ptr,
+}
+
+// 打开文件
+fn open(path: string, mode: string) ?File {
+    // 简化实现：返回一个模拟的文件对象
+    // 实际实现应该调用系统API打开文件
+    return File{
+        path: path,
+        handle: null  // 实际应该是指向文件句柄的指针
+    };
+}
+
+// 关闭文件
+fn close(file: File) void {
+    // 实际实现应该调用系统API关闭文件
+}
+
+// 写入文件
+fn write(file: File, content: string) Result<void, Error> {
+    // 实际实现应该写入文件内容
+    return Ok(void);
+}
+
+// 读取文件
+fn read(file: File) Result<string, Error> {
+    // 实际实现应该读取文件内容
+    return Ok("");
+}
+
+// ============================================================================
+// 标准流
+// ============================================================================
+
+struct Stdin {
+    // 标准输入
+}
+
+struct Stdout {
+    // 标准输出
+}
+
+struct Stderr {
+    // 标准错误
+}
+
+// 获取标准输入
+fn stdin() Stdin {
+    return Stdin{};
+}
+
+// 获取标准输出
+fn stdout() Stdout {
+    return Stdout{};
+}
+
+// 获取标准错误
+fn stderr() Stderr {
+    return Stderr{};
+}
+
+// ============================================================================
+// 便捷函数
+// ============================================================================
+
+// 打印错误信息
+fn eprintln(s: string) void {
+    // 输出到stderr
+    println(s);
+}
+
+// 打印调试信息
+fn debug(s: string) void {
+    println("[DEBUG] " + s);
+}
+
+// 打印警告信息
+fn warn(s: string) void {
+    println("[WARN] " + s);
+}
+
+// 打印错误信息
+fn error(s: string) void {
+    println("[ERROR] " + s);
+}
+
+// ============================================================================
+// 新增功能
+// ============================================================================
+
+// 读取整个文件
+fn read_file(path: string) Result<string, Error> {
+    // 模拟实现：返回文件内容
+    // 实际实现应该打开文件、读取内容并关闭文件
+    return Ok("");
+}
+
+// 写入整个文件
+fn write_file(path: string, content: string) Result<void, Error> {
+    // 模拟实现：写入文件内容
+    // 实际实现应该创建/打开文件、写入内容并关闭文件
+    return Ok(void);
+}
+
+// 追加到文件
+fn append_file(path: string, content: string) Result<void, Error> {
+    // 模拟实现：追加文件内容
+    // 实际实现应该以追加模式打开文件、写入内容并关闭文件
+    return Ok(void);
+}
+
+// 检查文件是否存在
+fn file_exists(path: string) bool {
+    // 模拟实现：检查文件是否存在
+    // 实际实现应该调用系统API检查文件是否存在
+    return false;
+}
+
+// 获取文件大小
+fn file_size(path: string) Result<int, Error> {
+    // 模拟实现：返回文件大小
+    // 实际实现应该获取文件的大小信息
+    return Ok(0);
+}
+
+// 逐行读取文件
+fn read_lines(path: string) Result<[]string, Error> {
+    // 模拟实现：返回文件的所有行
+    // 实际实现应该读取文件并按行分割
+    let lines: []string;
+    return Ok(lines);
+}
+
+// 写入多行到文件
+fn write_lines(path: string, lines: []string) Result<void, Error> {
+    // 模拟实现：将多行写入文件
+    // 实际实现应该将每一行写入文件
+    return Ok(void);
+}
+
+// 格式化写入文件
+fn write_fmt(path: string, format: string, args: ...any) Result<void, Error> {
+    // 模拟实现：格式化写入文件
+    // 实际实现应该格式化字符串并写入文件
+    return Ok(void);
+}
+
+// 读取字节
+fn read_bytes(path: string) Result<[]byte, Error> {
+    // 模拟实现：返回文件的字节内容
+    // 实际实现应该读取文件的二进制内容
+    let bytes: []byte;
+    return Ok(bytes);
+}
+
+// 写入字节
+fn write_bytes(path: string, bytes: []byte) Result<void, Error> {
+    // 模拟实现：将字节写入文件
+    // 实际实现应该将二进制数据写入文件
+    return Ok(void);
+}
+
+// 创建目录
+fn create_dir(path: string) Result<void, Error> {
+    // 模拟实现：创建目录
+    // 实际实现应该调用系统API创建目录
+    return Ok(void);
+}
+
+// 删除文件
+fn remove_file(path: string) Result<void, Error> {
+    // 模拟实现：删除文件
+    // 实际实现应该调用系统API删除文件
+    return Ok(void);
+}
+
+// 重命名文件
+fn rename_file(from: string, to: string) Result<void, Error> {
+    // 模拟实现：重命名文件
+    // 实际实现应该调用系统API重命名文件
+    return Ok(void);
+}
+
+// 复制文件
+fn copy_file(from: string, to: string) Result<void, Error> {
+    let content_result = read_file(from);
+    if (content_result.is_err()) {
+        return Result.Err(content_result.unwrap_err());
+    }
+    return write_file(to, content_result.unwrap());
+}
+
+// 获取当前工作目录
+fn current_dir() Result<string, Error> {
+    // 模拟实现：返回当前工作目录
+    // 实际实现应该调用系统API获取当前目录
+    return Ok(".");
+}
+
+// 改变当前工作目录
+fn set_current_dir(path: string) Result<void, Error> {
+    // 模拟实现：改变当前工作目录
+    // 实际实现应该调用系统API改变当前目录
+    return Ok(void);
+}
+
+// 临时文件
+fn temp_file() Result<string, Error> {
+    // 模拟实现：返回临时文件路径
+    // 实际实现应该创建一个唯一的临时文件
+    return Ok("temp.txt");
+}

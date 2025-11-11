@@ -1,0 +1,40 @@
+// 结构体和枚举测试程序
+
+// 定义结构体
+struct Point {
+    x: int,
+    y: int
+}
+
+pub struct User {
+    name: string,
+    age: int,
+    email: string
+}
+
+// 定义枚举
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+pub enum Result<T> {
+    Ok(T),
+    Err(string)
+}
+
+// 使用结构体和枚举
+fn main() int {
+    let p = Point { x: 10, y: 20 };
+    let user = User { 
+        name: "张三",
+        age: 30,
+        email: "zhangsan@example.com"
+    };
+    
+    let color = Color.Red;
+    let result = Result<int>.Ok(42);
+    
+    return 0;
+}

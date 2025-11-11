@@ -1,0 +1,401 @@
+// std.actor.timer - Actor定时器模块
+// 提供Actor定时任务和提醒功能
+module std.actor.timer;
+
+import std.actor.{Actor, ActorId, ActorRef, Result, Error};
+import std.time.{Time, Duration, Stopwatch};
+import std.collections.{Vec, HashMap};
+import std.string;
+
+// ============================================================================
+// 定时器相关类型定义
+// ============================================================================
+
+// 定时器ID
+struct TimerId {
+    id: string,
+}
+
+// 定时器类型
+enum TimerType {
+    Once,      // 一次性定时器
+    Repeated,  // 重复定时器
+}
+
+// 定时器状态
+enum TimerState {
+    Scheduled,   // 已调度
+    Running,     // 运行中
+    Completed,   // 已完成
+    Cancelled,   // 已取消
+}
+
+// 定时器回调接口
+interface TimerCallback {
+    fn on_timer_tick(self: *Self, timer_id: TimerId) void;
+}
+
+// 定时器信息
+struct TimerInfo {
+    id: TimerId,
+    actor_ref: ActorRef<*Actor>,
+    callback: *TimerCallback,
+    due_time: Time,        // 到期时间
+    period: Duration,      // 重复间隔（仅对重复定时器有效）
+    timer_type: TimerType,
+    state: TimerState,
+    tag: string,           // 标签，用于标识定时器用途
+}
+
+// 提醒器（Reminder）信息
+struct ReminderInfo {
+    name: string,          // 提醒器名称
+    actor_id: ActorId,     // 目标Actor ID
+    due_time: Time,        // 到期时间
+    period: Duration,      // 重复间隔
+    state: TimerState,
+    data: string,          // 附加数据
+}
+
+// ============================================================================
+// 定时器管理器
+// ============================================================================
+
+// 定时器管理器
+struct TimerManager {
+    timers: HashMap<TimerId, TimerInfo>,
+    reminders: HashMap<string, ReminderInfo>,
+    next_timer_id: int,
+}
+
+// ============================================================================
+// 定时器实现
+// ============================================================================
+
+// 创建定时器管理器
+fn new_timer_manager() TimerManager {
+    return TimerManager {
+        timers: HashMap.new(),
+        reminders: HashMap.new(),
+        next_timer_id: 1,
+    };
+}
+
+// 生成新的定时器ID
+fn (self: *TimerManager) generate_timer_id() TimerId {
+    let id = self.next_timer_id;
+    self.next_timer_id = self.next_timer_id + 1;
+    return TimerId { id: string.from_int(id) };
+}
+
+// 注册一次性定时器
+fn (self: *TimerManager) register_once_timer<T: Actor>(
+    actor_ref: ActorRef<T>,
+    callback: *TimerCallback,
+    delay: Duration,
+    tag: string
+) Result<TimerId, Error> {
+    let timer_id = self.generate_timer_id();
+    let now = time.now();
+    let due_time = time.time_add(now, delay);
+    
+    let timer_info = TimerInfo {
+        id: timer_id,
+        actor_ref: actor_ref as ActorRef<*Actor>,
+        callback: callback,
+        due_time: due_time,
+        period: Duration { seconds: 0, nanos: 0 },
+        timer_type: TimerType.Once,
+        state: TimerState.Scheduled,
+        tag: tag,
+    };
+    
+    self.timers.insert(timer_id, timer_info);
+    return Result.Ok(timer_id);
+}
+
+// 注册重复定时器
+fn (self: *TimerManager) register_repeated_timer<T: Actor>(
+    actor_ref: ActorRef<T>,
+    callback: *TimerCallback,
+    initial_delay: Duration,
+    period: Duration,
+    tag: string
+) Result<TimerId, Error> {
+    let timer_id = self.generate_timer_id();
+    let now = time.now();
+    let due_time = time.time_add(now, initial_delay);
+    
+    let timer_info = TimerInfo {
+        id: timer_id,
+        actor_ref: actor_ref as ActorRef<*Actor>,
+        callback: callback,
+        due_time: due_time,
+        period: period,
+        timer_type: TimerType.Repeated,
+        state: TimerState.Scheduled,
+        tag: tag,
+    };
+    
+    self.timers.insert(timer_id, timer_info);
+    return Result.Ok(timer_id);
+}
+
+// 取消定时器
+fn (self: *TimerManager) cancel_timer(timer_id: TimerId) Result<bool, Error> {
+    let timer = self.timers.get(timer_id);
+    if (timer.is_none()) {
+        return Result.Ok(false); // 定时器不存在
+    }
+    
+    let mut_timer = self.timers.get_mut(timer_id).unwrap();
+    if (mut_timer.state == TimerState.Cancelled || mut_timer.state == TimerState.Completed) {
+        return Result.Ok(false); // 定时器已取消或已完成
+    }
+    
+    mut_timer.state = TimerState.Cancelled;
+    return Result.Ok(true);
+}
+
+// 检查定时器是否存在
+fn (self: *TimerManager) timer_exists(timer_id: TimerId) bool {
+    return self.timers.contains_key(timer_id);
+}
+
+// 获取定时器信息
+fn (self: *TimerManager) get_timer_info(timer_id: TimerId) Option<TimerInfo> {
+    return self.timers.get(timer_id);
+}
+
+// ============================================================================
+// 提醒器（Reminder）实现
+// ============================================================================
+
+// 注册提醒器
+fn (self: *TimerManager) register_reminder(
+    actor_id: ActorId,
+    name: string,
+    due_time: Time,
+    period: Duration,
+    data: string
+) Result<void, Error> {
+    // 检查提醒器是否已存在
+    if (self.reminders.contains_key(name)) {
+        return Result.Err(Error.new("提醒器已存在"));
+    }
+    
+    let reminder_info = ReminderInfo {
+        name: name,
+        actor_id: actor_id,
+        due_time: due_time,
+        period: period,
+        state: TimerState.Scheduled,
+        data: data,
+    };
+    
+    self.reminders.insert(name, reminder_info);
+    return Result.Ok(void);
+}
+
+// 取消提醒器
+fn (self: *TimerManager) unregister_reminder(name: string) Result<bool, Error> {
+    if (!self.reminders.contains_key(name)) {
+        return Result.Ok(false); // 提醒器不存在
+    }
+    
+    self.reminders.remove(name);
+    return Result.Ok(true);
+}
+
+// 获取提醒器信息
+fn (self: *TimerManager) get_reminder_info(name: string) Option<ReminderInfo> {
+    return self.reminders.get(name);
+}
+
+// 检查提醒器是否存在
+fn (self: *TimerManager) reminder_exists(name: string) bool {
+    return self.reminders.contains_key(name);
+}
+
+// ============================================================================
+// 定时器处理逻辑
+// ============================================================================
+
+// 处理到期的定时器
+fn (self: *TimerManager) process_due_timers() void {
+    let now = time.now();
+    let mut timers_to_remove: Vec<TimerId> = Vec.new();
+    
+    // 遍历所有定时器
+    for (self.timers.entries()) |entry| {
+        let timer_id = entry.0;
+        let timer_info = entry.1;
+        
+        // 检查定时器是否到期
+        if (timer_info.state == TimerState.Scheduled || timer_info.state == TimerState.Running) {
+            if (time.time_less(timer_info.due_time, now) || time.time_equal(timer_info.due_time, now)) {
+                // 执行定时器回调
+                if (timer_info.callback != null) {
+                    timer_info.callback.on_timer_tick(timer_id);
+                }
+                
+                // 更新定时器状态
+                let mut_timer = self.timers.get_mut(timer_id).unwrap();
+                if (mut_timer.timer_type == TimerType.Once) {
+                    mut_timer.state = TimerState.Completed;
+                    timers_to_remove.push(timer_id);
+                } else {
+                    // 重复定时器，重新调度
+                    mut_timer.due_time = time.time_add(now, mut_timer.period);
+                    mut_timer.state = TimerState.Scheduled;
+                }
+            }
+        }
+    }
+    
+    // 移除已完成的一次性定时器
+    for (timers_to_remove) |timer_id| {
+        self.timers.remove(timer_id);
+    }
+}
+
+// 处理到期的提醒器
+fn (self: *TimerManager) process_due_reminders() void {
+    let now = time.now();
+    let mut reminders_to_update: Vec<(string, ReminderInfo)> = Vec.new();
+    
+    // 遍历所有提醒器
+    for (self.reminders.entries()) |entry| {
+        let name = entry.0;
+        let reminder_info = entry.1;
+        
+        // 检查提醒器是否到期
+        if (reminder_info.state == TimerState.Scheduled) {
+            if (time.time_less(reminder_info.due_time, now) || time.time_equal(reminder_info.due_time, now)) {
+                // 触发提醒器（这里需要通知对应的Actor）
+                // TODO: 实现提醒器触发逻辑
+                
+                // 更新提醒器状态
+                if (reminder_info.period.seconds > 0 || reminder_info.period.nanos > 0) {
+                    // 重复提醒器，重新调度
+                    let mut new_reminder = reminder_info;
+                    new_reminder.due_time = time.time_add(now, reminder_info.period);
+                    new_reminder.state = TimerState.Scheduled;
+                    reminders_to_update.push((name, new_reminder));
+                } else {
+                    // 一次性提醒器，标记为完成
+                    let mut new_reminder = reminder_info;
+                    new_reminder.state = TimerState.Completed;
+                    reminders_to_update.push((name, new_reminder));
+                }
+            }
+        }
+    }
+    
+    // 更新提醒器状态
+    for (reminders_to_update) |entry| {
+        self.reminders.insert(entry.0, entry.1);
+    }
+}
+
+// ============================================================================
+// 定时器后台任务
+// ============================================================================
+
+// 定时器处理主循环
+fn (self: *TimerManager) timer_loop() void {
+    while (true) {
+        // 处理到期的定时器
+        self.process_due_timers();
+        
+        // 处理到期的提醒器
+        self.process_due_reminders();
+        
+        // 短暂休眠以避免忙等待
+        time.sleep_millis(100);
+    }
+}
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+// 创建延迟Duration
+fn delay_duration(seconds: int, millis: int) Duration {
+    return Duration {
+        seconds: seconds,
+        nanos: millis * 1000000,
+    };
+}
+
+// 创建间隔Duration
+fn interval_duration(seconds: int, millis: int) Duration {
+    return Duration {
+        seconds: seconds,
+        nanos: millis * 1000000,
+    };
+}
+
+// ============================================================================
+// Actor定时器扩展
+// ============================================================================
+
+// Actor定时器扩展混入
+struct ActorTimerMixin<T: Actor> {
+    actor: T,
+    timer_manager: *TimerManager,
+    actor_ref: ActorRef<T>,
+}
+
+// 创建Actor定时器扩展
+fn new_actor_timer_mixin<T: Actor>(
+    actor: T,
+    timer_manager: *TimerManager,
+    actor_ref: ActorRef<T>
+) ActorTimerMixin<T> {
+    return ActorTimerMixin<T> {
+        actor: actor,
+        timer_manager: timer_manager,
+        actor_ref: actor_ref,
+    };
+}
+
+// 注册一次性定时器
+fn (self: *ActorTimerMixin<T>) register_once_timer(
+    callback: *TimerCallback,
+    delay: Duration,
+    tag: string
+) Result<TimerId, Error> {
+    return self.timer_manager.register_once_timer(self.actor_ref, callback, delay, tag);
+}
+
+// 注册重复定时器
+fn (self: *ActorTimerMixin<T>) register_repeated_timer(
+    callback: *TimerCallback,
+    initial_delay: Duration,
+    period: Duration,
+    tag: string
+) Result<TimerId, Error> {
+    return self.timer_manager.register_repeated_timer(self.actor_ref, callback, initial_delay, period, tag);
+}
+
+// 取消定时器
+fn (self: *ActorTimerMixin<T>) cancel_timer(timer_id: TimerId) Result<bool, Error> {
+    return self.timer_manager.cancel_timer(timer_id);
+}
+
+// 注册提醒器
+fn (self: *ActorTimerMixin<T>) register_reminder(
+    name: string,
+    due_time: Time,
+    period: Duration,
+    data: string
+) Result<void, Error> {
+    let actor_id = self.actor.get_id();
+    return self.timer_manager.register_reminder(actor_id, name, due_time, period, data);
+}
+
+// 取消提醒器
+fn (self: *ActorTimerMixin<T>) unregister_reminder(name: string) Result<bool, Error> {
+    return self.timer_manager.unregister_reminder(name);
+}

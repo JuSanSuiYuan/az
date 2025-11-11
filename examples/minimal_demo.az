@@ -1,0 +1,8 @@
+// Minimal AZ Language Demo
+
+import std.io;
+
+fn main() int {
+    println("Hello, AZ Language!");
+    return 0;
+}

@@ -1,0 +1,355 @@
+// std.actor.persistence - Actor持久化模块
+// 提供Actor状态持久化支持
+module std.actor.persistence;
+
+import std.actor.{Actor, ActorId, Result, Error};
+import std.fs;
+import std.string;
+import std.mem;
+import std.collections.{HashMap, Vec};
+
+// ============================================================================
+// 持久化相关类型定义
+// ============================================================================
+
+// 持久化提供者接口
+interface PersistenceProvider {
+    // 保存Actor状态
+    fn save_state(self: *Self, actor_id: ActorId, state: *any) Result<void, Error>;
+    
+    // 加载Actor状态
+    fn load_state(self: *Self, actor_id: ActorId, state: *any) Result<bool, Error>;
+    
+    // 删除Actor状态
+    fn delete_state(self: *Self, actor_id: ActorId) Result<void, Error>;
+    
+    // 检查Actor状态是否存在
+    fn state_exists(self: *Self, actor_id: ActorId) Result<bool, Error>;
+}
+
+// 文件系统持久化提供者
+struct FilePersistenceProvider {
+    base_path: string,
+}
+
+// 内存持久化提供者（用于测试）
+struct MemoryPersistenceProvider {
+    states: HashMap<ActorId, *any>,
+}
+
+// 持久化配置
+struct PersistenceConfig {
+    provider_type: string,  // "file" 或 "memory"
+    file_base_path: string, // 文件持久化基础路径
+    auto_save_interval_ms: int, // 自动保存间隔（毫秒）
+}
+
+// ============================================================================
+// 持久化标记接口
+// ============================================================================
+
+// 可持久化的Actor接口
+interface PersistentActor: Actor {
+    // 获取要持久化的状态
+    fn get_persistent_state(self: *Self) *any;
+    
+    // 从持久化状态恢复
+    fn restore_from_state(self: *Self, state: *any) Result<void, Error>;
+    
+    // 获取状态键（用于持久化）
+    fn get_state_key(self: *Self) string;
+}
+
+// ============================================================================
+// 文件系统持久化提供者实现
+// ============================================================================
+
+// 创建文件系统持久化提供者
+fn new_file_provider(base_path: string) FilePersistenceProvider {
+    // 确保目录存在
+    fs.create_dir_all(base_path);
+    
+    return FilePersistenceProvider {
+        base_path: base_path,
+    };
+}
+
+// 生成文件路径
+fn (self: *FilePersistenceProvider) get_file_path(actor_id: ActorId) string {
+    return string.concat(
+        string.concat(self.base_path, "/"),
+        string.concat(actor_id.id, ".state")
+    );
+}
+
+// 保存状态到文件
+fn (self: *FilePersistenceProvider) save_state(actor_id: ActorId, state: *any) Result<void, Error> {
+    let file_path = self.get_file_path(actor_id);
+    
+    // TODO: 序列化状态到字符串
+    // 这里需要一个序列化机制，暂时使用简单表示
+    let state_str = "serialized_state"; // 实际实现中需要序列化
+    
+    let write_result = fs.write_string(file_path, state_str);
+    if (write_result.is_err()) {
+        return Result.Err(Error.new("保存状态失败"));
+    }
+    
+    return Result.Ok(void);
+}
+
+// 从文件加载状态
+fn (self: *FilePersistenceProvider) load_state(actor_id: ActorId, state: *any) Result<bool, Error> {
+    let file_path = self.get_file_path(actor_id);
+    
+    // 检查文件是否存在
+    if (!fs.is_file(file_path)) {
+        return Result.Ok(false); // 状态不存在
+    }
+    
+    let read_result = fs.read_to_string(file_path);
+    if (read_result.is_err()) {
+        return Result.Err(Error.new("读取状态失败"));
+    }
+    
+    let state_str = read_result.unwrap();
+    
+    // TODO: 反序列化状态
+    // 这里需要一个反序列化机制
+    
+    return Result.Ok(true);
+}
+
+// 删除状态文件
+fn (self: *FilePersistenceProvider) delete_state(actor_id: ActorId) Result<void, Error> {
+    let file_path = self.get_file_path(actor_id);
+    
+    if (fs.is_file(file_path)) {
+        let remove_result = fs.remove_file(file_path);
+        if (remove_result.is_err()) {
+            return Result.Err(Error.new("删除状态失败"));
+        }
+    }
+    
+    return Result.Ok(void);
+}
+
+// 检查状态文件是否存在
+fn (self: *FilePersistenceProvider) state_exists(actor_id: ActorId) Result<bool, Error> {
+    let file_path = self.get_file_path(actor_id);
+    return Result.Ok(fs.is_file(file_path));
+}
+
+// ============================================================================
+// 内存持久化提供者实现
+// ============================================================================
+
+// 创建内存持久化提供者
+fn new_memory_provider() MemoryPersistenceProvider {
+    return MemoryPersistenceProvider {
+        states: HashMap.new(),
+    };
+}
+
+// 保存状态到内存
+fn (self: *MemoryPersistenceProvider) save_state(actor_id: ActorId, state: *any) Result<void, Error> {
+    self.states.insert(actor_id, state);
+    return Result.Ok(void);
+}
+
+// 从内存加载状态
+fn (self: *MemoryPersistenceProvider) load_state(actor_id: ActorId, state: *any) Result<bool, Error> {
+    let stored_state = self.states.get(actor_id);
+    if (stored_state.is_none()) {
+        return Result.Ok(false);
+    }
+    
+    // TODO: 复制状态到目标变量
+    // 这里需要实现状态复制机制
+    
+    return Result.Ok(true);
+}
+
+// 从内存删除状态
+fn (self: *MemoryPersistenceProvider) delete_state(actor_id: ActorId) Result<void, Error> {
+    self.states.remove(actor_id);
+    return Result.Ok(void);
+}
+
+// 检查内存中状态是否存在
+fn (self: *MemoryPersistenceProvider) state_exists(actor_id: ActorId) Result<bool, Error> {
+    return Result.Ok(self.states.contains_key(actor_id));
+}
+
+// ============================================================================
+// 持久化管理器
+// ============================================================================
+
+// 持久化管理器
+struct PersistenceManager {
+    provider: *PersistenceProvider,
+    config: PersistenceConfig,
+    dirty_actors: Vec<ActorId>, // 脏数据Actor列表
+}
+
+// 创建持久化管理器
+fn new_persistence_manager(config: PersistenceConfig) Result<PersistenceManager, Error> {
+    let provider: *PersistenceProvider;
+    
+    match config.provider_type {
+        "file" => {
+            provider = new_file_provider(config.file_base_path) as *PersistenceProvider;
+        },
+        "memory" => {
+            provider = new_memory_provider() as *PersistenceProvider;
+        },
+        _ => {
+            return Result.Err(Error.new("不支持的持久化提供者类型"));
+        }
+    }
+    
+    return Result.Ok(PersistenceManager {
+        provider: provider,
+        config: config,
+        dirty_actors: Vec.new(),
+    });
+}
+
+// 标记Actor为脏数据（需要保存）
+fn (self: *PersistenceManager) mark_dirty(actor_id: ActorId) void {
+    if (!self.dirty_actors.contains(actor_id)) {
+        self.dirty_actors.push(actor_id);
+    }
+}
+
+// 保存脏数据
+fn (self: *PersistenceManager) save_dirty() Result<void, Error> {
+    for (self.dirty_actors) |actor_id| {
+        // 注意：这里需要Actor实例来获取状态，实际实现中需要更复杂的机制
+        // 暂时跳过具体实现
+    }
+    
+    self.dirty_actors.clear();
+    return Result.Ok(void);
+}
+
+// 保存特定Actor的状态
+fn (self: *PersistenceManager) save_actor_state<T: PersistentActor>(actor: *T) Result<void, Error> {
+    let state = actor.get_persistent_state();
+    let actor_id = actor.get_id();
+    
+    let result = self.provider.save_state(actor_id, state);
+    if (result.is_ok()) {
+        // 从脏数据列表中移除
+        self.dirty_actors.remove(actor_id);
+    }
+    
+    return result;
+}
+
+// 加载Actor状态
+fn (self: *PersistenceManager) load_actor_state<T: PersistentActor>(actor: *T) Result<bool, Error> {
+    let state = actor.get_persistent_state();
+    let actor_id = actor.get_id();
+    
+    let result = self.provider.load_state(actor_id, state);
+    if (result.is_err()) {
+        return result;
+    }
+    
+    let exists = result.unwrap();
+    if (exists) {
+        // 恢复状态
+        return actor.restore_from_state(state);
+    }
+    
+    return Result.Ok(false);
+}
+
+// 删除Actor状态
+fn (self: *PersistenceManager) delete_actor_state(actor_id: ActorId) Result<void, Error> {
+    let result = self.provider.delete_state(actor_id);
+    if (result.is_ok()) {
+        // 从脏数据列表中移除
+        self.dirty_actors.remove(actor_id);
+    }
+    return result;
+}
+
+// 检查Actor状态是否存在
+fn (self: *PersistenceManager) state_exists(actor_id: ActorId) Result<bool, Error> {
+    return self.provider.state_exists(actor_id);
+}
+
+// ============================================================================
+// 持久化Actor混入
+// ============================================================================
+
+// 持久化Actor混入，提供自动持久化功能
+struct PersistentActorMixin<T> {
+    actor: T,
+    persistence_manager: *PersistenceManager,
+    auto_save_enabled: bool,
+}
+
+// 创建持久化Actor混入
+fn new_persistent_actor_mixin<T: PersistentActor>(
+    actor: T, 
+    persistence_manager: *PersistenceManager
+) PersistentActorMixin<T> {
+    return PersistentActorMixin<T> {
+        actor: actor,
+        persistence_manager: persistence_manager,
+        auto_save_enabled: true,
+    };
+}
+
+// 启用自动保存
+fn (self: *PersistentActorMixin<T>) enable_auto_save() void {
+    self.auto_save_enabled = true;
+}
+
+// 禁用自动保存
+fn (self: *PersistentActorMixin<T>) disable_auto_save() void {
+    self.auto_save_enabled = false;
+}
+
+// 手动保存状态
+fn (self: *PersistentActorMixin<T>) save_state() Result<void, Error> {
+    return self.persistence_manager.save_actor_state(&self.actor);
+}
+
+// 加载状态
+fn (self: *PersistentActorMixin<T>) load_state() Result<bool, Error> {
+    return self.persistence_manager.load_actor_state(&self.actor);
+}
+
+// 标记为脏数据
+fn (self: *PersistentActorMixin<T>) mark_dirty() void {
+    if (self.auto_save_enabled) {
+        let actor_id = self.actor.get_id();
+        self.persistence_manager.mark_dirty(actor_id);
+    }
+}
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+// 创建默认持久化配置
+fn default_persistence_config() PersistenceConfig {
+    return PersistenceConfig {
+        provider_type: "file",
+        file_base_path: "./actor_states",
+        auto_save_interval_ms: 5000, // 5秒自动保存
+    };
+}
+
+// 创建测试用的内存持久化配置
+fn memory_persistence_config() PersistenceConfig {
+    return PersistenceConfig {
+        provider_type: "memory",
+        file_base_path: "",
+        auto_save_interval_ms: 1000, // 1秒自动保存
+    };
+}

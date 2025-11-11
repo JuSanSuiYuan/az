@@ -1,0 +1,259 @@
+// 现代化编程特性演示程序
+
+import std.di;
+import std.middleware;
+import std.async;
+import std.linq;
+
+// 示例服务实现
+struct UserService {
+    // 服务数据
+}
+
+fn new_user_service() UserService {
+    return UserService{};
+}
+
+fn get_user_name(service: *UserService, id: int) string {
+    match id {
+        1 => return "张三",
+        2 => return "李四",
+        _ => return "未知用户"
+    }
+}
+
+fn get_user_age(service: *UserService, id: int) int {
+    match id {
+        1 => return 25,
+        2 => return 30,
+        _ => return 0
+    }
+}
+
+// 示例中间件
+struct LoggingMiddleware {}
+
+fn new_logging_middleware() LoggingMiddleware {
+    return LoggingMiddleware{};
+}
+
+fn process_logging_middleware(middleware: *LoggingMiddleware, context: *MiddlewareContext) Result<void, Error> {
+    println("Logging: Processing request...");
+    let result = context.next();
+    println("Logging: Request processed.");
+    return result;
+}
+
+struct AuthMiddleware {}
+
+fn new_auth_middleware() AuthMiddleware {
+    return AuthMiddleware{};
+}
+
+fn process_auth_middleware(middleware: *AuthMiddleware, context: *MiddlewareContext) Result<void, Error> {
+    println("Auth: Checking authentication...");
+    // 简单模拟认证检查
+    if context.request.headers.get("Authorization").is_some() {
+        println("Auth: Authentication successful.");
+        return context.next();
+    } else {
+        println("Auth: Authentication failed.");
+        return Err(Error::new("Unauthorized"));
+    }
+}
+
+// 异步任务示例
+fn fetch_user_data_async(user_id: int) Task<string> {
+    let promise = Promise<string>::new();
+    let task = Task::from_promise(promise);
+    
+    // 模拟异步操作
+    // Note: AZ的Bootstrap版本可能不支持go关键字和并发
+    // 这里只是演示语法
+    
+    // 获取用户数据
+    let service = new_user_service();
+    let name = get_user_name(&service, user_id);
+    let age = get_user_age(&service, user_id);
+    let result = format("User: {}, Age: {}", name, age);
+    
+    promise.set_value(result);
+    
+    return task;
+}
+
+// LINQ查询示例
+struct User {
+    id: int,
+    name: string,
+    age: int,
+    department: string,
+}
+
+fn demonstrate_linq() void {
+    // 创建用户数据集合
+    let users = [
+        User{id: 1, name: "张三", age: 25, department: "工程部"},
+        User{id: 2, name: "李四", age: 30, department: "市场部"},
+        User{id: 3, name: "王五", age: 35, department: "工程部"},
+        User{id: 4, name: "赵六", age: 28, department: "人事部"},
+        User{id: 5, name: "钱七", age: 32, department: "工程部"},
+    ];
+    
+    // 使用LINQ查询
+    println("=== LINQ 查询演示 ===");
+    
+    // 查询工程部年龄大于30的员工
+    let query_result = users.as_queryable()
+        .filter(fn(u: User) bool { return u.department == "工程部" && u.age > 30; })
+        .map(fn(u: User) string { return format("{} ({}岁)", u.name, u.age); })
+        .to_list();
+    
+    println("工程部年龄大于30的员工:");
+    for query_result {
+        println("  - {}", it);
+    }
+    
+    // 统计各部门人数
+    let department_counts = users.as_queryable()
+        .group_by(fn(u: User) string { return u.department; })
+        .map(fn(g: Group<string, User>) (string, int) { 
+            return (g.key, g.items.len()); 
+        })
+        .to_list();
+    
+    println("\n各部门人数统计:");
+    for department_counts {
+        println("  - {}: {}人", it.0, it.1);
+    }
+}
+
+fn main() Result<int, Error> {
+    println("=== AZ语言现代化编程特性演示 ===\n");
+    
+    // 1. 依赖注入演示
+    println("1. 依赖注入演示:");
+    let mut container = ServiceContainer::new();
+    // Note: 由于Bootstrap版本的限制，这里只是演示语法
+    // container.register_singleton<IUserService, UserService>(UserService::new());
+    container.build();
+    
+    // 设置全局服务容器
+    // ServiceProvider::set_global_container(container);
+    
+    // let resolved_service = ServiceProvider::resolve<IUserService>();
+    let service = new_user_service();
+    println("  服务获取用户1姓名: {}", get_user_name(&service, 1));
+    println("  服务获取用户2年龄: {}\n", get_user_age(&service, 2));
+    
+    // 2. 中间件模式演示
+    println("2. 中间件模式演示:");
+    let mut pipeline = MiddlewarePipeline::new();
+    // Note: 由于Bootstrap版本的限制，这里只是演示语法
+    // pipeline.add_middleware(LoggingMiddleware::new());
+    // pipeline.add_middleware(AuthMiddleware::new());
+    
+    let mut request = HttpRequest::new();
+    // Note: 由于Bootstrap版本的限制，这里只是演示语法
+    // request.headers.insert("Authorization", "Bearer token123");
+    
+    // match pipeline.execute(&mut request) {
+    //     Ok(_) => println("  请求处理成功\n"),
+    //     Err(e) => println("  请求处理失败: {}\n", e.message())
+    // }
+    println("  中间件演示完成\n");
+    
+    // 3. 异步编程演示
+    println("3. 异步编程演示:");
+    let task1 = fetch_user_data_async(1);
+    let task2 = fetch_user_data_async(2);
+    
+    println("  启动异步任务...");
+    
+    // 等待任务完成并获取结果
+    // Note: 由于Bootstrap版本的限制，这里只是演示语法
+    // let result1 = task1.await();
+    // let result2 = task2.await();
+    
+    println("  异步任务结果:");
+    println("    任务1: {}", "User: 张三, Age: 25");
+    println("    任务2: {}\n", "User: 李四, Age: 30");
+    
+    // 4. LINQ查询演示
+    demonstrate_linq();
+    
+    // 5. 强类型结构化输出
+    println("\n5. 强类型结构化输出:");
+    let structured_result = User{
+        id: 1,
+        name: "张三",
+        age: 25,
+        department: "工程部"
+    };
+    
+    println("  用户信息:");
+    println("    ID: {}", structured_result.id);
+    println("    姓名: {}", structured_result.name);
+    println("    年龄: {}", structured_result.age);
+    println("    部门: {}", structured_result.department);
+    
+    return Ok(0);
+}
+
+// 辅助结构体用于演示
+struct HttpRequest {
+    headers: HashMap<string, string>,
+}
+
+fn new_http_request() HttpRequest {
+    return HttpRequest{
+        headers: HashMap::new(),
+    };
+}
+
+struct Group<K, V> {
+    key: K,
+    items: [V],
+}
+
+fn filter_queryable<V>(self: *[V], predicate: fn(V) bool) *[V] {
+    // 简化实现
+    return self;
+}
+
+fn map_queryable<V, U>(self: *[V], mapper: fn(V) U) *[U] {
+    // 简化实现
+    // 实际实现会在 linq.az 中提供
+    let result: [U];
+    return &result;
+}
+
+fn flat_map_queryable<V, U>(self: *[V], mapper: fn(V) *[U]) *[U] {
+    let result: [U];
+    return &result;
+}
+
+fn take_queryable<V>(self: *[V], count: int) *[V] {
+    return self;
+}
+
+fn skip_queryable<V>(self: *[V], count: int) *[V] {
+    return self;
+}
+
+fn distinct_queryable<V>(self: *[V]) *[V] {
+    return self;
+}
+
+fn sort_queryable<V>(self: *[V], comparer: fn(V, V) int) *[V] {
+    return self;
+}
+
+fn to_list_queryable<V>(self: *[V]) [V] {
+    return *self;
+}
+
+fn group_by_queryable<V, K>(self: *[V], key_selector: fn(V) K) *[Group<K, V>] {
+    let result: [Group<K, V>];
+    return &result;
+}

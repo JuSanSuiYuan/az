@@ -1,0 +1,8 @@
+// 简单的Hello World程序，用于测试工具链
+
+import std.io;
+
+fn main() int {
+    println("Hello, AZ Toolchain!");
+    return 0;
+}

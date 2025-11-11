@@ -1,0 +1,567 @@
+// std.actor.messaging - Actor消息传递模块
+// 提供Actor间的消息传递和通信支持
+module std.actor.messaging;
+
+import std.actor.{ActorId, ActorRef, Actor, Message, Result, Error, ActorError};
+import std.actor.runtime.{RuntimeManager, send_message_runtime, Mailbox, mailbox_push, mailbox_pop, mailbox_is_empty};
+import std.collections.{Vec, HashMap, Queue};
+import std.time;
+import std.mem;
+import std.string;
+
+// ============================================================================
+// 消息传递相关类型定义
+// ============================================================================
+
+// 消息优先级
+enum MessagePriority {
+    Low,      // 低优先级
+    Normal,   // 正常优先级
+    High,     // 高优先级
+    Critical, // 关键优先级
+}
+
+// 消息类型
+struct MessageEnvelope {
+    message: *Message,           // 消息内容
+    sender_id: ActorId,          // 发送者ID
+    priority: MessagePriority,   // 消息优先级
+    timestamp: time.Time,        // 时间戳
+    ttl: int,                    // 生存时间（毫秒）
+    correlation_id: string,      // 关联ID（用于请求-响应模式）
+}
+
+// 延迟消息
+struct DelayedMessage {
+    envelope: MessageEnvelope,
+    deliver_at: time.Time,       // 交付时间
+}
+
+// 消息路由器
+interface MessageRouter {
+    fn route_message(self: *Self, envelope: MessageEnvelope) Result<void, Error>;
+}
+
+// 消息中间件
+interface MessageMiddleware {
+    fn process_incoming(self: *Self, envelope: MessageEnvelope) Result<MessageEnvelope, Error>;
+    fn process_outgoing(self: *Self, envelope: MessageEnvelope) Result<MessageEnvelope, Error>;
+}
+
+// 消息通道
+struct MessageChannel {
+    name: string,
+    subscribers: Vec<ActorId>,
+    middleware: Vec<*MessageMiddleware>,
+}
+
+// ============================================================================
+// 消息队列管理器
+// ============================================================================
+
+struct MessageQueueManager {
+    // 优先级队列
+    critical_queue: Queue<MessageEnvelope>,
+    high_queue: Queue<MessageEnvelope>,
+    normal_queue: Queue<MessageEnvelope>,
+    low_queue: Queue<MessageEnvelope>,
+    
+    // 延迟消息队列
+    delayed_messages: Vec<DelayedMessage>,
+    
+    // 消息通道
+    channels: HashMap<string, MessageChannel>,
+    
+    // 路由器
+    router: *MessageRouter,
+    
+    // 中间件
+    middleware: Vec<*MessageMiddleware>,
+    
+    // 统计信息
+    stats: MessageQueueStats,
+}
+
+// 消息队列统计信息
+struct MessageQueueStats {
+    total_messages: int,
+    delivered_messages: int,
+    dropped_messages: int,
+    delayed_messages: int,
+    queue_sizes: [4]int, // 各优先级队列大小
+}
+
+// ============================================================================
+// 消息发送器
+// ============================================================================
+
+struct MessageSender {
+    runtime_manager: *RuntimeManager,
+    queue_manager: *MessageQueueManager,
+}
+
+// ============================================================================
+// 消息队列管理器实现
+// ============================================================================
+
+// 创建消息队列管理器
+fn new_message_queue_manager(router: *MessageRouter) MessageQueueManager {
+    return MessageQueueManager {
+        critical_queue: Queue.new(),
+        high_queue: Queue.new(),
+        normal_queue: Queue.new(),
+        low_queue: Queue.new(),
+        delayed_messages: Vec.new(),
+        channels: HashMap.new(),
+        router: router,
+        middleware: Vec.new(),
+        stats: MessageQueueStats {
+            total_messages: 0,
+            delivered_messages: 0,
+            dropped_messages: 0,
+            delayed_messages: 0,
+            queue_sizes: [0, 0, 0, 0],
+        },
+    };
+}
+
+// 添加中间件
+fn (self: *MessageQueueManager) add_middleware(middleware: *MessageMiddleware) void {
+    self.middleware.push(middleware);
+}
+
+// 移除中间件
+fn (self: *MessageQueueManager) remove_middleware(middleware: *MessageMiddleware) void {
+    // TODO: 实现中间件移除逻辑
+}
+
+// 处理传入消息（通过中间件）
+fn (self: *MessageQueueManager) process_incoming_message(envelope: MessageEnvelope) Result<MessageEnvelope, Error> {
+    let mut processed_envelope = envelope;
+    
+    // 通过所有中间件处理
+    for (self.middleware) |middleware| {
+        let result = middleware.process_incoming(processed_envelope);
+        if (result.is_err()) {
+            return result;
+        }
+        processed_envelope = result.unwrap();
+    }
+    
+    return Result.Ok(processed_envelope);
+}
+
+// 处理传出消息（通过中间件）
+fn (self: *MessageQueueManager) process_outgoing_message(envelope: MessageEnvelope) Result<MessageEnvelope, Error> {
+    let mut processed_envelope = envelope;
+    
+    // 通过所有中间件处理
+    for (self.middleware) |middleware| {
+        let result = middleware.process_outgoing(processed_envelope);
+        if (result.is_err()) {
+            return result;
+        }
+        processed_envelope = result.unwrap();
+    }
+    
+    return Result.Ok(processed_envelope);
+}
+
+// 将消息添加到相应优先级队列
+fn (self: *MessageQueueManager) enqueue_message(envelope: MessageEnvelope) Result<void, Error> {
+    // 更新统计信息
+    self.stats.total_messages = self.stats.total_messages + 1;
+    
+    match envelope.priority {
+        MessagePriority.Critical => {
+            self.critical_queue.enqueue(envelope);
+            self.stats.queue_sizes[0] = self.stats.queue_sizes[0] + 1;
+        },
+        MessagePriority.High => {
+            self.high_queue.enqueue(envelope);
+            self.stats.queue_sizes[1] = self.stats.queue_sizes[1] + 1;
+        },
+        MessagePriority.Normal => {
+            self.normal_queue.enqueue(envelope);
+            self.stats.queue_sizes[2] = self.stats.queue_sizes[2] + 1;
+        },
+        MessagePriority.Low => {
+            self.low_queue.enqueue(envelope);
+            self.stats.queue_sizes[3] = self.stats.queue_sizes[3] + 1;
+        }
+    }
+    
+    return Result.Ok(void);
+}
+
+// 添加延迟消息
+fn (self: *MessageQueueManager) add_delayed_message(envelope: MessageEnvelope, delay_ms: int) Result<void, Error> {
+    let now = time.now();
+    let delay_duration = time.duration_from_millis(delay_ms);
+    let deliver_at = time.time_add(now, delay_duration);
+    
+    let delayed_msg = DelayedMessage {
+        envelope: envelope,
+        deliver_at: deliver_at,
+    };
+    
+    self.delayed_messages.push(delayed_msg);
+    self.stats.delayed_messages = self.stats.delayed_messages + 1;
+    
+    return Result.Ok(void);
+}
+
+// 处理到期的延迟消息
+fn (self: *MessageQueueManager) process_delayed_messages() void {
+    let now = time.now();
+    let mut remaining_messages = Vec.new();
+    
+    for (self.delayed_messages) |delayed_msg| {
+        if (time.time_less(delayed_msg.deliver_at, now) || time.time_equal(delayed_msg.deliver_at, now)) {
+            // 消息到期，添加到队列
+            let enqueue_result = self.enqueue_message(delayed_msg.envelope);
+            if (enqueue_result.is_ok()) {
+                self.stats.delayed_messages = self.stats.delayed_messages - 1;
+            }
+        } else {
+            // 未到期，保留在延迟队列中
+            remaining_messages.push(delayed_msg);
+        }
+    }
+    
+    self.delayed_messages = remaining_messages;
+}
+
+// 从队列中获取下一个消息（按优先级）
+fn (self: *MessageQueueManager) dequeue_message() Option<MessageEnvelope> {
+    // 按优先级顺序检查队列
+    
+    // 1. 关键优先级
+    if (!self.critical_queue.is_empty()) {
+        let envelope = self.critical_queue.dequeue().unwrap();
+        self.stats.queue_sizes[0] = self.stats.queue_sizes[0] - 1;
+        self.stats.delivered_messages = self.stats.delivered_messages + 1;
+        return Option.Some(envelope);
+    }
+    
+    // 2. 高优先级
+    if (!self.high_queue.is_empty()) {
+        let envelope = self.high_queue.dequeue().unwrap();
+        self.stats.queue_sizes[1] = self.stats.queue_sizes[1] - 1;
+        self.stats.delivered_messages = self.stats.delivered_messages + 1;
+        return Option.Some(envelope);
+    }
+    
+    // 3. 正常优先级
+    if (!self.normal_queue.is_empty()) {
+        let envelope = self.normal_queue.dequeue().unwrap();
+        self.stats.queue_sizes[2] = self.stats.queue_sizes[2] - 1;
+        self.stats.delivered_messages = self.stats.delivered_messages + 1;
+        return Option.Some(envelope);
+    }
+    
+    // 4. 低优先级
+    if (!self.low_queue.is_empty()) {
+        let envelope = self.low_queue.dequeue().unwrap();
+        self.stats.queue_sizes[3] = self.stats.queue_sizes[3] - 1;
+        self.stats.delivered_messages = self.stats.delivered_messages + 1;
+        return Option.Some(envelope);
+    }
+    
+    return Option.None;
+}
+
+// 获取队列统计信息
+fn (self: *MessageQueueManager) get_stats() MessageQueueStats {
+    return self.stats;
+}
+
+// 清理过期消息
+fn (self: *MessageQueueManager) cleanup_expired_messages() int {
+    let now = time.now();
+    let mut cleaned_count = 0;
+    
+    // 清理延迟消息中的过期消息
+    let mut remaining_delayed = Vec.new();
+    for (self.delayed_messages) |delayed_msg| {
+        if (delayed_msg.envelope.ttl > 0) {
+            let expire_time = time.time_add(delayed_msg.envelope.timestamp, time.duration_from_millis(delayed_msg.envelope.ttl));
+            if (time.time_less(expire_time, now)) {
+                // 消息已过期
+                self.stats.dropped_messages = self.stats.dropped_messages + 1;
+                self.stats.delayed_messages = self.stats.delayed_messages - 1;
+                cleaned_count = cleaned_count + 1;
+            } else {
+                remaining_delayed.push(delayed_msg);
+            }
+        } else {
+            remaining_delayed.push(delayed_msg);
+        }
+    }
+    self.delayed_messages = remaining_delayed;
+    
+    return cleaned_count;
+}
+
+// ============================================================================
+// 消息通道实现
+// ============================================================================
+
+// 创建消息通道
+fn (self: *MessageQueueManager) create_channel(name: string) Result<void, Error> {
+    if (self.channels.contains_key(name)) {
+        return Result.Err(Error.new("通道已存在"));
+    }
+    
+    let channel = MessageChannel {
+        name: name,
+        subscribers: Vec.new(),
+        middleware: Vec.new(),
+    };
+    
+    self.channels.insert(name, channel);
+    return Result.Ok(void);
+}
+
+// 订阅通道
+fn (self: *MessageQueueManager) subscribe_to_channel(channel_name: string, actor_id: ActorId) Result<void, Error> {
+    let channel = self.channels.get_mut(channel_name);
+    if (channel.is_none()) {
+        return Result.Err(Error.new("通道不存在"));
+    }
+    
+    let mut chan = channel.unwrap();
+    if (!chan.subscribers.contains(actor_id)) {
+        chan.subscribers.push(actor_id);
+    }
+    
+    return Result.Ok(void);
+}
+
+// 取消订阅通道
+fn (self: *MessageQueueManager) unsubscribe_from_channel(channel_name: string, actor_id: ActorId) Result<void, Error> {
+    let channel = self.channels.get_mut(channel_name);
+    if (channel.is_none()) {
+        return Result.Err(Error.new("通道不存在"));
+    }
+    
+    let mut chan = channel.unwrap();
+    chan.subscribers.remove(actor_id);
+    
+    return Result.Ok(void);
+}
+
+// 向通道发布消息
+fn (self: *MessageQueueManager) publish_to_channel(channel_name: string, message: *Message, sender_id: ActorId) Result<void, Error> {
+    let channel = self.channels.get(channel_name);
+    if (channel.is_none()) {
+        return Result.Err(Error.new("通道不存在"));
+    }
+    
+    let chan = channel.unwrap();
+    
+    // 为每个订阅者创建消息副本
+    for (chan.subscribers) |subscriber_id| {
+        let envelope = MessageEnvelope {
+            message: message,
+            sender_id: sender_id,
+            priority: MessagePriority.Normal,
+            timestamp: time.now(),
+            ttl: 0, // 永不过期
+            correlation_id: "",
+        };
+        
+        // 通过通道中间件处理
+        let mut processed_envelope = envelope;
+        for (chan.middleware) |middleware| {
+            let result = middleware.process_outgoing(processed_envelope);
+            if (result.is_ok()) {
+                processed_envelope = result.unwrap();
+            }
+        }
+        
+        // 发送消息给订阅者
+        let send_result = self.enqueue_message(processed_envelope);
+        if (send_result.is_err()) {
+            // 记录错误但继续发送给其他订阅者
+        }
+    }
+    
+    return Result.Ok(void);
+}
+
+// ============================================================================
+// 消息发送器实现
+// ============================================================================
+
+// 创建消息发送器
+fn new_message_sender(runtime_manager: *RuntimeManager, queue_manager: *MessageQueueManager) MessageSender {
+    return MessageSender {
+        runtime_manager: runtime_manager,
+        queue_manager: queue_manager,
+    };
+}
+
+// 发送消息给Actor
+fn (self: *MessageSender) send_message<T: Actor>(actor_ref: ActorRef<T>, message: *Message, sender_id: ActorId) Result<void, Error> {
+    // 创建消息信封
+    let envelope = MessageEnvelope {
+        message: message,
+        sender_id: sender_id,
+        priority: MessagePriority.Normal,
+        timestamp: time.now(),
+        ttl: 0, // 永不过期
+        correlation_id: "",
+    };
+    
+    // 处理传出消息（通过中间件）
+    let processed_result = self.queue_manager.process_outgoing_message(envelope);
+    if (processed_result.is_err()) {
+        return processed_result;
+    }
+    
+    let processed_envelope = processed_result.unwrap();
+    
+    // 将消息添加到队列
+    let enqueue_result = self.queue_manager.enqueue_message(processed_envelope);
+    if (enqueue_result.is_err()) {
+        return enqueue_result;
+    }
+    
+    // 触发消息处理
+    return send_message_runtime(self.runtime_manager, actor_ref.id, processed_envelope.message);
+}
+
+// 发送高优先级消息
+fn (self: *MessageSender) send_priority_message<T: Actor>(actor_ref: ActorRef<T>, message: *Message, sender_id: ActorId, priority: MessagePriority) Result<void, Error> {
+    // 创建消息信封
+    let envelope = MessageEnvelope {
+        message: message,
+        sender_id: sender_id,
+        priority: priority,
+        timestamp: time.now(),
+        ttl: 0, // 永不过期
+        correlation_id: "",
+    };
+    
+    // 处理传出消息（通过中间件）
+    let processed_result = self.queue_manager.process_outgoing_message(envelope);
+    if (processed_result.is_err()) {
+        return processed_result;
+    }
+    
+    let processed_envelope = processed_result.unwrap();
+    
+    // 将消息添加到队列
+    let enqueue_result = self.queue_manager.enqueue_message(processed_envelope);
+    if (enqueue_result.is_err()) {
+        return enqueue_result;
+    }
+    
+    // 触发消息处理
+    return send_message_runtime(self.runtime_manager, actor_ref.id, processed_envelope.message);
+}
+
+// 发送延迟消息
+fn (self: *MessageSender) send_delayed_message<T: Actor>(actor_ref: ActorRef<T>, message: *Message, sender_id: ActorId, delay_ms: int) Result<void, Error> {
+    // 创建消息信封
+    let envelope = MessageEnvelope {
+        message: message,
+        sender_id: sender_id,
+        priority: MessagePriority.Normal,
+        timestamp: time.now(),
+        ttl: 0, // 永不过期
+        correlation_id: "",
+    };
+    
+    // 处理传出消息（通过中间件）
+    let processed_result = self.queue_manager.process_outgoing_message(envelope);
+    if (processed_result.is_err()) {
+        return processed_result;
+    }
+    
+    let processed_envelope = processed_result.unwrap();
+    
+    // 添加到延迟消息队列
+    return self.queue_manager.add_delayed_message(processed_envelope, delay_ms);
+}
+
+// 发送带有TTL的消息
+fn (self: *MessageSender) send_message_with_ttl<T: Actor>(actor_ref: ActorRef<T>, message: *Message, sender_id: ActorId, ttl_ms: int) Result<void, Error> {
+    // 创建消息信封
+    let envelope = MessageEnvelope {
+        message: message,
+        sender_id: sender_id,
+        priority: MessagePriority.Normal,
+        timestamp: time.now(),
+        ttl: ttl_ms,
+        correlation_id: "",
+    };
+    
+    // 处理传出消息（通过中间件）
+    let processed_result = self.queue_manager.process_outgoing_message(envelope);
+    if (processed_result.is_err()) {
+        return processed_result;
+    }
+    
+    let processed_envelope = processed_result.unwrap();
+    
+    // 将消息添加到队列
+    let enqueue_result = self.queue_manager.enqueue_message(processed_envelope);
+    if (enqueue_result.is_err()) {
+        return enqueue_result;
+    }
+    
+    // 触发消息处理
+    return send_message_runtime(self.runtime_manager, actor_ref.id, processed_envelope.message);
+}
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+// 创建消息信封
+fn new_message_envelope(message: *Message, sender_id: ActorId, priority: MessagePriority) MessageEnvelope {
+    return MessageEnvelope {
+        message: message,
+        sender_id: sender_id,
+        priority: priority,
+        timestamp: time.now(),
+        ttl: 0,
+        correlation_id: "",
+    };
+}
+
+// 设置消息关联ID
+fn (self: *MessageEnvelope) set_correlation_id(correlation_id: string) void {
+    self.correlation_id = correlation_id;
+}
+
+// 检查消息是否过期
+fn (self: *MessageEnvelope) is_expired() bool {
+    if (self.ttl <= 0) {
+        return false; // 永不过期
+    }
+    
+    let now = time.now();
+    let expire_time = time.time_add(self.timestamp, time.duration_from_millis(self.ttl));
+    return time.time_less(expire_time, now);
+}
+
+// 消息优先级转字符串
+fn message_priority_to_string(priority: MessagePriority) string {
+    match priority {
+        MessagePriority.Low => {
+            return "Low";
+        },
+        MessagePriority.Normal => {
+            return "Normal";
+        },
+        MessagePriority.High => {
+            return "High";
+        },
+        MessagePriority.Critical => {
+            return "Critical";
+        }
+    }
+}

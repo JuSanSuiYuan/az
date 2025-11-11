@@ -1,0 +1,8 @@
+// 简单测试程序
+
+import std.io;
+
+fn main() int {
+    println("Hello, AZ Toolchain!");
+    return 0;
+}

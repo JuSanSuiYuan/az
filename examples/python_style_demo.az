@@ -1,0 +1,35 @@
+// Python风格缩进的AZ语言示例（概念演示）
+// 注意：当前版本的AZ编译器不支持此语法
+
+import std.io
+
+fn main() int:
+    println("=== Python风格缩进演示 ===")
+    
+    // if语句使用缩进而不是大括号
+    let x = 10
+    if x > 5:
+        println("x大于5")
+        println("这是if块中的另一行")
+    else:
+        println("x小于等于5")
+        println("这是else块中的另一行")
+    
+    // while循环使用缩进
+    var i = 1
+    println("计数到3:")
+    while i <= 3:
+        print("  ")
+        println(i)
+        i = i + 1
+    
+    // 函数定义使用缩进
+    fn calculate_sum(a: int, b: int) int:
+        let result = a + b
+        return result
+    
+    let sum = calculate_sum(3, 5)
+    println("3 + 5 = ")
+    println(sum)
+    
+    return 0

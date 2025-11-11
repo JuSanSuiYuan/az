@@ -1,0 +1,267 @@
+// std.middleware - 中间件模式模块
+// 提供管道处理和中间件功能
+module std.middleware;
+
+import std.error.{Result, Error};
+import std.collections.{Vec};
+import std.mem;
+
+// ============================================================================
+// 中间件相关类型定义
+// ============================================================================
+
+// 中间件上下文
+struct MiddlewareContext {
+    request: *any,      // 请求数据
+    response: *any,     // 响应数据
+    metadata: *any,     // 元数据
+    is_terminated: bool, // 是否终止处理
+}
+
+// 中间件接口
+interface Middleware {
+    fn process(self: *Self, context: *MiddlewareContext) Result<void, Error>;
+}
+
+// 中间件管道
+struct MiddlewarePipeline {
+    middlewares: Vec<*Middleware>,
+}
+
+// 请求委托
+type RequestDelegate = fn(context: *MiddlewareContext) Result<void, Error>;
+
+// ============================================================================
+// 中间件上下文实现
+// ============================================================================
+
+// 创建中间件上下文
+fn new_middleware_context(request: *any, response: *any) MiddlewareContext {
+    return MiddlewareContext {
+        request: request,
+        response: response,
+        metadata: null,
+        is_terminated: false,
+    };
+}
+
+// 终止处理
+fn (self: *MiddlewareContext) terminate() void {
+    self.is_terminated = true;
+}
+
+// 设置元数据
+fn (self: *MiddlewareContext) set_metadata(metadata: *any) void {
+    self.metadata = metadata;
+}
+
+// 获取元数据
+fn (self: *MiddlewareContext) get_metadata() *any {
+    return self.metadata;
+}
+
+// ============================================================================
+// 中间件管道实现
+// ============================================================================
+
+// 创建中间件管道
+fn new_middleware_pipeline() MiddlewarePipeline {
+    return MiddlewarePipeline {
+        middlewares: Vec.new(),
+    };
+}
+
+// 添加中间件
+fn (self: *MiddlewarePipeline) use(middleware: *Middleware) Result<void, Error> {
+    self.middlewares.push(middleware);
+    return Result.Ok(void);
+}
+
+// 构建请求委托
+fn (self: *MiddlewarePipeline) build() RequestDelegate {
+    // 从最后一个中间件开始构建委托链
+    let mut delegate: RequestDelegate = fn(context: *MiddlewareContext) Result<void, Error> {
+        // 默认终端中间件
+        return Result.Ok(void);
+    };
+    
+    // 反向遍历中间件列表，构建委托链
+    for (var i = self.middlewares.len() - 1; i >= 0; i = i - 1) {
+        let middleware = self.middlewares.get(i);
+        let next_delegate = delegate;
+        
+        delegate = fn(context: *MiddlewareContext) Result<void, Error> {
+            // 调用当前中间件
+            let process_result = middleware.process(context);
+            if (process_result.is_err()) {
+                return process_result;
+            }
+            
+            // 检查是否终止处理
+            if (context.is_terminated) {
+                return Result.Ok(void);
+            }
+            
+            // 调用下一个中间件
+            return next_delegate(context);
+        };
+    }
+    
+    return delegate;
+}
+
+// 处理请求
+fn (self: *MiddlewarePipeline) process(context: *MiddlewareContext) Result<void, Error> {
+    let delegate = self.build();
+    return delegate(context);
+}
+
+// ============================================================================
+// 常用中间件实现
+// ============================================================================
+
+// 日志中间件
+struct LoggingMiddleware {
+    name: string,
+}
+
+impl Middleware for LoggingMiddleware {
+    fn process(self: *Self, context: *MiddlewareContext) Result<void, Error> {
+        println("[" + self.name + "] 开始处理请求");
+        
+        // 这里可以添加实际的日志记录逻辑
+        
+        println("[" + self.name + "] 请求处理完成");
+        return Result.Ok(void);
+    }
+}
+
+// 创建日志中间件
+fn new_logging_middleware(name: string) LoggingMiddleware {
+    return LoggingMiddleware {
+        name: name,
+    };
+}
+
+// 认证中间件
+struct AuthenticationMiddleware {
+    auth_provider: *any, // 认证提供者
+}
+
+impl Middleware for AuthenticationMiddleware {
+    fn process(self: *Self, context: *MiddlewareContext) Result<void, Error> {
+        // 检查请求是否包含认证信息
+        // 这里只是一个示例实现
+        
+        println("[Authentication] 验证请求认证信息");
+        
+        // TODO: 实际的认证逻辑
+        // 如果认证失败，可以终止处理
+        // context.terminate();
+        
+        return Result.Ok(void);
+    }
+}
+
+// 创建认证中间件
+fn new_authentication_middleware(auth_provider: *any) AuthenticationMiddleware {
+    return AuthenticationMiddleware {
+        auth_provider: auth_provider,
+    };
+}
+
+// 授权中间件
+struct AuthorizationMiddleware {
+    policy: string, // 授权策略
+}
+
+impl Middleware for AuthorizationMiddleware {
+    fn process(self: *Self, context: *MiddlewareContext) Result<void, Error> {
+        // 检查请求是否具有足够的权限
+        // 这里只是一个示例实现
+        
+        println("[Authorization] 检查请求权限: " + self.policy);
+        
+        // TODO: 实际的授权逻辑
+        // 如果授权失败，可以终止处理
+        // context.terminate();
+        
+        return Result.Ok(void);
+    }
+}
+
+// 创建授权中间件
+fn new_authorization_middleware(policy: string) AuthorizationMiddleware {
+    return AuthorizationMiddleware {
+        policy: policy,
+    };
+}
+
+// 异常处理中间件
+struct ExceptionHandlingMiddleware {
+    handler: *any, // 异常处理器
+}
+
+impl Middleware for ExceptionHandlingMiddleware {
+    fn process(self: *Self, context: *MiddlewareContext) Result<void, Error> {
+        // 这里应该包装处理逻辑以捕获异常
+        // 由于AZ语言的特性，这里只是一个概念实现
+        
+        println("[ExceptionHandling] 开始处理请求");
+        
+        // TODO: 实际的异常处理逻辑
+        
+        return Result.Ok(void);
+    }
+}
+
+// 创建异常处理中间件
+fn new_exception_handling_middleware(handler: *any) ExceptionHandlingMiddleware {
+    return ExceptionHandlingMiddleware {
+        handler: handler,
+    };
+}
+
+// 性能监控中间件
+struct PerformanceMiddleware {
+    threshold_ms: int, // 性能阈值（毫秒）
+}
+
+impl Middleware for PerformanceMiddleware {
+    fn process(self: *Self, context: *MiddlewareContext) Result<void, Error> {
+        let start_time = time.now();
+        
+        println("[Performance] 开始计时");
+        
+        // 处理完成后计算耗时
+        // 注意：中间件的处理是链式的，这里需要特殊处理
+        
+        let end_time = time.now();
+        let duration = time.time_sub(end_time, start_time);
+        let duration_ms = duration.seconds * 1000 + duration.nanos / 1000000;
+        
+        if (duration_ms > self.threshold_ms) {
+            println("[Performance] 请求处理时间过长: " + string.from_int(duration_ms) + "ms");
+        } else {
+            println("[Performance] 请求处理完成: " + string.from_int(duration_ms) + "ms");
+        }
+        
+        return Result.Ok(void);
+    }
+}
+
+// 创建性能监控中间件
+fn new_performance_middleware(threshold_ms: int) PerformanceMiddleware {
+    return PerformanceMiddleware {
+        threshold_ms: threshold_ms,
+    };
+}
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+// 创建默认中间件管道
+fn default_middleware_pipeline() MiddlewarePipeline {
+    return new_middleware_pipeline();
+}

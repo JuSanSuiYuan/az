@@ -1,0 +1,337 @@
+// std.os - 操作系统接口模块
+module std.os;
+
+import std.error;
+import std.string;
+
+// ============================================================================
+// 环境变量
+// ============================================================================
+
+// 获取环境变量
+extern fn az_getenv(name: string) ?string;
+
+fn getenv(name: string) ?string {
+    return az_getenv(name);
+}
+
+// 设置环境变量
+extern fn az_setenv(name: string, value: string) int;
+
+fn setenv(name: string, value: string) Result<void, Error> {
+    let result = az_setenv(name, value);
+    if (result != 0) {
+        return Err(Error::new("设置环境变量失败: " + name));
+    }
+    return Ok(void);
+}
+
+// 删除环境变量
+extern fn az_unsetenv(name: string) int;
+
+fn unsetenv(name: string) Result<void, Error> {
+    let result = az_unsetenv(name);
+    if (result != 0) {
+        return Err(Error::new("删除环境变量失败: " + name));
+    }
+    return Ok(void);
+}
+
+// 获取所有环境变量
+extern fn az_environ() []string;
+
+fn environ() []string {
+    return az_environ();
+}
+
+// ============================================================================
+// 进程管理
+// ============================================================================
+
+// 获取进程ID
+extern fn az_getpid() int;
+
+fn getpid() int {
+    return az_getpid();
+}
+
+// 获取父进程ID
+extern fn az_getppid() int;
+
+fn getppid() int {
+    return az_getppid();
+}
+
+// 退出程序
+extern fn az_exit(code: int) void;
+
+fn exit(code: int) void {
+    az_exit(code);
+}
+
+// 执行命令
+extern fn az_system(command: string) int;
+
+fn system(command: string) int {
+    return az_system(command);
+}
+
+// ============================================================================
+// 命令行参数
+// ============================================================================
+
+// 获取命令行参数
+extern fn az_args() []string;
+
+fn args() []string {
+    return az_args();
+}
+
+// 获取程序名
+fn program_name() string {
+    let argv = args();
+    if (argv.len > 0) {
+        return argv[0];
+    }
+    return "az";
+}
+
+// ============================================================================
+// 工作目录
+// ============================================================================
+
+// 获取当前工作目录
+extern fn az_getcwd() Result<string, Error>;
+
+fn getcwd() Result<string, Error> {
+    return az_getcwd();
+}
+
+// 改变工作目录
+extern fn az_chdir(path: string) Result<void, Error>;
+
+fn chdir(path: string) Result<void, Error> {
+    return az_chdir(path);
+}
+
+// ============================================================================
+// 用户信息
+// ============================================================================
+
+// 获取用户ID
+extern fn az_getuid() int;
+
+fn getuid() int {
+    return az_getuid();
+}
+
+// 获取用户名
+extern fn az_username() ?string;
+
+fn username() ?string {
+    return az_username();
+}
+
+// 获取主目录
+extern fn az_home_dir() ?string;
+
+fn home_dir() ?string {
+    return az_home_dir();
+}
+
+// ============================================================================
+// 系统信息
+// ============================================================================
+
+// 获取操作系统名称
+extern fn az_os_name() string;
+
+fn os_name() string {
+    return az_os_name();
+}
+
+// 获取架构
+extern fn az_arch() string;
+
+fn arch() string {
+    return az_arch();
+}
+
+// 获取主机名
+extern fn az_hostname() Result<string, Error>;
+
+fn hostname() Result<string, Error> {
+    return az_hostname();
+}
+
+// ============================================================================
+// 临时文件
+// ============================================================================
+
+// 获取临时目录
+extern fn az_temp_dir() string;
+
+fn temp_dir() string {
+    return az_temp_dir();
+}
+
+// 创建临时文件
+extern fn az_temp_file(prefix: string) Result<string, Error>;
+
+fn temp_file(prefix: string) Result<string, Error> {
+    return az_temp_file(prefix);
+}
+
+// ============================================================================
+// 新增功能
+// ============================================================================
+
+// 获取环境变量（带默认值）
+fn getenv_or(name: string, default_value: string) string {
+    match getenv(name) {
+        case ?value:
+            return value;
+        case null:
+            return default_value;
+    }
+}
+
+// 获取环境变量为整数
+fn getenv_int(name: string) Result<int, Error> {
+    match getenv(name) {
+        case ?value:
+            return Ok(string.to_int(value));
+        case null:
+            return Err(Error::new("环境变量未设置: " + name));
+    }
+}
+
+// 获取环境变量为布尔值
+fn getenv_bool(name: string) Result<bool, Error> {
+    match getenv(name) {
+        case ?value:
+            // 支持多种布尔值表示方式
+            let lower = string.to_lower_str(value);
+            if (lower == "true" || lower == "1" || lower == "yes" || lower == "on") {
+                return Ok(true);
+            } else if (lower == "false" || lower == "0" || lower == "no" || lower == "off") {
+                return Ok(false);
+            } else {
+                return Err(Error::new("无效的布尔值: " + value));
+            }
+        case null:
+            return Err(Error::new("环境变量未设置: " + name));
+    }
+}
+
+// 设置当前时间区域
+extern fn az_set_timezone(tz: string) Result<void, Error>;
+
+fn set_timezone(tz: string) Result<void, Error> {
+    return az_set_timezone(tz);
+}
+
+// 获取当前时间区域
+extern fn az_get_timezone() string;
+
+fn get_timezone() string {
+    return az_get_timezone();
+}
+
+// 获取系统启动时间
+extern fn az_boot_time() Result<int, Error>;
+
+fn boot_time() Result<int, Error> {
+    return az_boot_time();
+}
+
+// 获取系统运行时间
+extern fn az_uptime() Result<int, Error>;
+
+fn uptime() Result<int, Error> {
+    return az_uptime();
+}
+
+// 获取CPU核心数
+extern fn az_cpu_count() int;
+
+fn cpu_count() int {
+    return az_cpu_count();
+}
+
+// 获取内存信息
+extern fn az_memory_info() Result<(int, int), Error>;
+
+fn memory_info() Result<(int, int), Error> {
+    return az_memory_info();
+}
+
+// 获取磁盘空间
+extern fn az_disk_usage(path: string) Result<(int, int), Error>;
+
+fn disk_usage(path: string) Result<(int, int), Error> {
+    return az_disk_usage(path);
+}
+
+// 获取负载平均值
+extern fn az_load_average() Result<(float, float, float), Error>;
+
+fn load_average() Result<(float, float, float), Error> {
+    return az_load_average();
+}
+
+// 检查是否为管理员权限
+extern fn az_is_admin() bool;
+
+fn is_admin() bool {
+    return az_is_admin();
+}
+
+// 获取系统信息
+extern fn az_system_info() Result<string, Error>;
+
+fn system_info() Result<string, Error> {
+    return az_system_info();
+}
+
+// 获取网络接口信息
+extern fn az_network_interfaces() Result<[]string, Error>;
+
+fn network_interfaces() Result<[]string, Error> {
+    return az_network_interfaces();
+}
+
+// 获取IP地址
+extern fn az_get_ip_address() Result<string, Error>;
+
+fn get_ip_address() Result<string, Error> {
+    return az_get_ip_address();
+}
+
+// 获取MAC地址
+extern fn az_get_mac_address() Result<string, Error>;
+
+fn get_mac_address() Result<string, Error> {
+    return az_get_mac_address();
+}
+
+// 获取系统版本
+extern fn az_system_version() string;
+
+fn system_version() string {
+    return az_system_version();
+}
+
+// 检查文件描述符限制
+extern fn az_file_descriptor_limit() Result<(int, int), Error>;
+
+fn file_descriptor_limit() Result<(int, int), Error> {
+    return az_file_descriptor_limit();
+}
+
+// 设置文件描述符限制
+extern fn az_set_file_descriptor_limit(soft: int, hard: int) Result<void, Error>;
+
+fn set_file_descriptor_limit(soft: int, hard: int) Result<void, Error> {
+    return az_set_file_descriptor_limit(soft, hard);
+}

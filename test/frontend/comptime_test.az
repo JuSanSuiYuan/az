@@ -1,0 +1,23 @@
+// 编译时执行测试程序
+
+fn main() int {
+    println("运行时执行");
+    
+    // 编译时执行代码
+    comptime {
+        println("这是在编译时执行的代码");
+        let x = 10 + 20;
+        println("编译时计算结果: " + x);
+    }
+    
+    // 编译时条件编译
+    comptime {
+        if (sizeof(int) == 8) {
+            println("64位平台");
+        } else {
+            println("32位平台");
+        }
+    }
+    
+    return 0;
+}

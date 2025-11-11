@@ -1,0 +1,29 @@
+# az mod workspace配置文件
+# 类似pnpm的workspace功能
+
+packages = [
+  # 指定workspace中包含的包
+  'packages/*',
+  'apps/*'
+]
+
+# 链接选项
+link-workspace-packages = true
+
+# az mod特定设置
+[az_mod]
+  # Git直连配置
+  git-fetch = true
+  
+  # 包管理策略
+  # 启用硬链接以提高磁盘效率（类似pnpm的优点）
+  hard-link = true
+  hoist = false
+  shamefully-hoist = false
+  
+  # 工具链配置
+  # 使用lld作为链接器
+  linker = "lld"
+  
+  # 使用lldb作为调试器
+  debugger = "lldb"

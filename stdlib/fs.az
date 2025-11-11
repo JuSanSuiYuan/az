@@ -1,0 +1,409 @@
+// std.fs - 文件系统模块
+// 结合Zig、C3和Rust的优点
+module std.fs;
+
+import std.io;
+import std.error;
+import std.string;
+import std.collections.Vec;
+import std.os;
+
+// 重新导出fs_complete中的功能
+import std.fs_complete.{Metadata, DirEntry, exists, is_file, is_dir, is_symlink, 
+                         is_readable, is_writable, is_executable, remove_file, 
+                         copy_file, rename_file, hard_link, symlink_file, read_link,
+                         file_size, create_dir, create_dir_all, remove_dir, 
+                         remove_dir_all, read_dir, join_path, basename, dirname,
+                         extension, stem, absolute, canonicalize, current_dir,
+                         set_current_dir, set_permissions, set_owner, temp_dir};
+
+// 重新导出核心类型和函数
+pub use std.fs_complete.{Metadata, DirEntry, exists, is_file, is_dir, is_symlink, 
+                         is_readable, is_writable, is_executable, remove_file, 
+                         copy_file, rename_file, hard_link, symlink_file, read_link,
+                         file_size, create_dir, create_dir_all, remove_dir, 
+                         remove_dir_all, read_dir, join_path, basename, dirname,
+                         extension, stem, absolute, canonicalize, current_dir,
+                         set_current_dir, set_permissions, set_owner, temp_dir};
+
+// ============================================================================
+// 文件操作 (结合Zig、C3和Rust的优点)
+// ============================================================================
+
+/// 读取整个文件内容为字符串 (类似Rust std::fs::read_to_string)
+pub fn read_to_string(path: string) Result<string, Error> {
+    return io.read_file(path);
+}
+
+/// 写入字符串到文件 (类似Rust std::fs::write)
+pub fn write(path: string, contents: string) Result<void, Error> {
+    return io.write_file(path, contents);
+}
+
+/// 追加字符串到文件 (类似Rust std::fs::append)
+pub fn append(path: string, contents: string) Result<void, Error> {
+    return io.append_file(path, contents);
+}
+
+/// 读取整个文件内容为字节 (类似Rust std::fs::read)
+pub fn read(path: string) Result<[]byte, Error> {
+    // TODO: 实现读取字节
+    let bytes: []byte;
+    return Ok(bytes);
+}
+
+/// 写入字节到文件 (类似Rust std::fs::write)
+pub fn write_bytes(path: string, contents: []byte) Result<void, Error> {
+    // TODO: 实现写入字节
+    return Ok(void);
+}
+
+/// 读取文件行 (类似Rust std::io::BufRead)
+pub fn read_lines(path: string) Result<Vec<string>, Error> {
+    return io.read_lines(path);
+}
+
+// ============================================================================
+// 目录迭代器 (类似Rust std::fs::read_dir)
+// ============================================================================
+
+/// 目录迭代器 (类似Rust)
+pub struct ReadDir {
+    entries: Vec<DirEntry>,
+    index: int
+}
+
+/// 目录项 (类似Rust)
+pub struct DirEntryWrapper {
+    entry: DirEntry
+}
+
+impl DirEntryWrapper {
+    /// 获取文件名 (类似Rust)
+    pub fn file_name(self: *DirEntryWrapper) string {
+        return self.entry.name;
+    }
+    
+    /// 获取文件路径 (类似Rust)
+    pub fn path(self: *DirEntryWrapper) string {
+        return self.entry.path;
+    }
+    
+    /// 获取文件元数据 (类似Rust)
+    pub fn metadata(self: *DirEntryWrapper) Result<Metadata, Error> {
+        return metadata(self.entry.path);
+    }
+    
+    /// 检查是否为文件 (类似Rust)
+    pub fn file_type(self: *DirEntryWrapper) Result<FileType, Error> {
+        let meta_result = self.metadata();
+        if (meta_result.is_err()) {
+            return Result.Err(meta_result.unwrap_err());
+        }
+        
+        let meta = meta_result.unwrap();
+        return Result.Ok(FileType {
+            is_file: meta.is_file,
+            is_dir: meta.is_dir,
+            is_symlink: meta.is_symlink
+        });
+    }
+}
+
+/// 文件类型 (类似Rust)
+pub struct FileType {
+    is_file: bool,
+    is_dir: bool,
+    is_symlink: bool
+}
+
+impl FileType {
+    /// 检查是否为文件
+    pub fn is_file(self: FileType) bool {
+        return self.is_file;
+    }
+    
+    /// 检查是否为目录
+    pub fn is_dir(self: FileType) bool {
+        return self.is_dir;
+    }
+    
+    /// 检查是否为符号链接
+    pub fn is_symlink(self: FileType) bool {
+        return self.is_symlink;
+    }
+}
+
+/// 创建目录迭代器 (类似Rust std::fs::read_dir)
+pub fn read_dir_wrapper(path: string) Result<ReadDir, Error> {
+    let entries_result = read_dir(path);
+    if (entries_result.is_err()) {
+        return Result.Err(entries_result.unwrap_err());
+    }
+    
+    return Result.Ok(ReadDir {
+        entries: entries_result.unwrap(),
+        index: 0
+    });
+}
+
+impl ReadDir {
+    /// 获取下一个目录项 (类似Rust Iterator)
+    pub fn next(self: *ReadDir) Option<DirEntryWrapper> {
+        if (self.index >= self.entries.len()) {
+            return Option.None;
+        }
+        
+        let entry = self.entries.get(self.index).unwrap();
+        self.index = self.index + 1;
+        
+        return Option.Some(DirEntryWrapper {
+            entry: entry
+        });
+    }
+}
+
+// ============================================================================
+// 文件系统操作 (结合Zig、C3和Rust的优点)
+// ============================================================================
+
+/// 复制文件并保持权限 (类似Rust std::fs::copy)
+pub fn copy(from: string, to: string) Result<int, Error> {
+    let copy_result = copy_file(from, to);
+    if (copy_result.is_err()) {
+        return Result.Err(copy_result.unwrap_err());
+    }
+    
+    // 获取源文件大小
+    let size_result = file_size(from);
+    if (size_result.is_err()) {
+        return Result.Err(size_result.unwrap_err());
+    }
+    
+    return Result.Ok(size_result.unwrap());
+}
+
+/// 递归复制目录 (类似Rust fs_extra crate)
+pub fn copy_dir_all(src: string, dst: string) Result<void, Error> {
+    // 创建目标目录
+    let create_result = create_dir_all(dst);
+    if (create_result.is_err()) {
+        return create_result;
+    }
+    
+    // 读取源目录
+    let entries_result = read_dir(src);
+    if (entries_result.is_err()) {
+        return Result.Err(entries_result.unwrap_err());
+    }
+    
+    let entries = entries_result.unwrap();
+    
+    // 复制每个条目
+    for (var i = 0; i < entries.len(); i = i + 1) {
+        let entry = entries.get(i).unwrap();
+        let src_path = entry.path;
+        let dst_path = join_path(dst, entry.name);
+        
+        if (entry.is_dir) {
+            // 递归复制子目录
+            let copy_result = copy_dir_all(src_path, dst_path);
+            if (copy_result.is_err()) {
+                return copy_result;
+            }
+        } else {
+            // 复制文件
+            let copy_result = copy_file(src_path, dst_path);
+            if (copy_result.is_err()) {
+                return copy_result;
+            }
+        }
+    }
+    
+    return Result.Ok(());
+}
+
+/// 计算目录大小 (类似Rust)
+pub fn dir_size(path: string) Result<int, Error> {
+    let mut total_size = 0;
+    
+    // 读取目录
+    let entries_result = read_dir(path);
+    if (entries_result.is_err()) {
+        return Result.Err(entries_result.unwrap_err());
+    }
+    
+    let entries = entries_result.unwrap();
+    
+    // 计算每个条目的大小
+    for (var i = 0; i < entries.len(); i = i + 1) {
+        let entry = entries.get(i).unwrap();
+        
+        if (entry.is_file) {
+            let size_result = file_size(entry.path);
+            if (size_result.is_err()) {
+                return Result.Err(size_result.unwrap_err());
+            }
+            total_size = total_size + size_result.unwrap();
+        } else if (entry.is_dir) {
+            let size_result = dir_size(entry.path);
+            if (size_result.is_err()) {
+                return Result.Err(size_result.unwrap_err());
+            }
+            total_size = total_size + size_result.unwrap();
+        }
+    }
+    
+    return Result.Ok(total_size);
+}
+
+// ============================================================================
+// 路径操作 (结合Zig、C3和Rust的优点)
+// ============================================================================
+
+/// 检查路径是否为绝对路径 (类似Rust)
+pub fn is_absolute(path: string) bool {
+    // 简化实现：检查是否以/或盘符开头
+    if (string.is_empty(path)) {
+        return false;
+    }
+    
+    let first_char = string.char_at(path, 0).unwrap();
+    if (first_char == '/') {
+        return true;
+    }
+    
+    // Windows路径检查
+    if (path.len() >= 2 && string.char_at(path, 1).unwrap() == ':') {
+        return true;
+    }
+    
+    return false;
+}
+
+/// 检查路径是否为相对路径 (类似Rust)
+pub fn is_relative(path: string) bool {
+    return !is_absolute(path);
+}
+
+/// 规范化路径分隔符 (类似Zig)
+pub fn normalize_separators(path: string) string {
+    // 将所有反斜杠替换为正斜杠
+    return string.replace(path, "\\", "/");
+}
+
+/// 获取路径组件 (类似Rust Path::components)
+pub fn components(path: string) Vec<string> {
+    let mut parts = Vec<string>.new();
+    let normalized = normalize_separators(path);
+    let split_result = string.split(normalized, "/");
+    
+    for (var i = 0; i < split_result.len(); i = i + 1) {
+        let part = split_result.get(i).unwrap();
+        if (!string.is_empty(part) && part != ".") {
+            if (part == "..") {
+                // 处理父目录
+                if (parts.len() > 0) {
+                    parts.pop();
+                }
+            } else {
+                parts.push(part);
+            }
+        }
+    }
+    
+    return parts;
+}
+
+// ============================================================================
+// 权限和所有权 (结合Zig、C3和Rust的优点)
+// ============================================================================
+
+/// Unix权限类型 (类似Rust std::os::unix::fs)
+pub struct Permissions {
+    mode: int
+}
+
+impl Permissions {
+    /// 创建新的权限
+    pub fn new(mode: int) Permissions {
+        return Permissions { mode: mode };
+    }
+    
+    /// 获取权限模式
+    pub fn mode(self: Permissions) int {
+        return self.mode;
+    }
+    
+    /// 设置权限模式
+    pub fn set_mode(self: *Permissions, mode: int) void {
+        self.mode = mode;
+    }
+}
+
+/// 获取文件权限 (类似Rust std::fs::metadata)
+pub fn permissions(path: string) Result<Permissions, Error> {
+    let meta_result = metadata(path);
+    if (meta_result.is_err()) {
+        return Result.Err(meta_result.unwrap_err());
+    }
+    
+    let meta = meta_result.unwrap();
+    return Result.Ok(Permissions { mode: meta.permissions });
+}
+
+// ============================================================================
+// 临时文件和目录 (结合Zig、C3和Rust的优点)
+// ============================================================================
+
+/// 临时文件 (类似Rust tempfile crate)
+pub struct TempFile {
+    path: string,
+    file: io.File
+}
+
+/// 临时目录 (类似Rust tempfile crate)
+pub struct TempDir {
+    path: string
+}
+
+impl TempFile {
+    /// 获取文件路径
+    pub fn path(self: *TempFile) string {
+        return self.path;
+    }
+    
+    /// 关闭并删除临时文件
+    pub fn close(self: *TempFile) Result<void, Error> {
+        let close_result = io.close(self.file);
+        if (close_result.is_err()) {
+            return close_result;
+        }
+        
+        return remove_file(self.path);
+    }
+}
+
+impl TempDir {
+    /// 获取目录路径
+    pub fn path(self: *TempDir) string {
+        return self.path;
+    }
+    
+    /// 关闭并删除临时目录
+    pub fn close(self: *TempDir) Result<void, Error> {
+        return remove_dir_all(self.path);
+    }
+}
+
+/// 创建临时文件 (类似Rust tempfile::NamedTempFile)
+pub fn temp_file() Result<TempFile, Error> {
+    // TODO: 实现临时文件创建
+    return Result.Err(Error::new("未实现"));
+}
+
+/// 创建临时目录 (类似Rust tempfile::TempDir)
+pub fn temp_dir_new() Result<TempDir, Error> {
+    // TODO: 实现临时目录创建
+    return Result.Err(Error::new("未实现"));
+}

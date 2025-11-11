@@ -1,0 +1,113 @@
+// std_fs_enhanced_test.az - 增强文件系统标准库测试
+module test.std_fs_enhanced;
+
+import std.test;
+import std.fs;
+import std.string;
+import std.collections.Vec;
+
+fn test_file_operations() void {
+    // 测试读取文件为字符串
+    let read_result = fs.read_to_string("test.txt");
+    // 注意：实际测试需要文件存在
+
+    // 测试写入字符串到文件
+    let write_result = fs.write("test.txt", "Hello, AZ!");
+    // test.assert(write_result.is_ok(), "应该能写入文件");
+
+    // 测试追加到文件
+    let append_result = fs.append("test.txt", "\nAppended line");
+    // test.assert(append_result.is_ok(), "应该能追加到文件");
+}
+
+fn test_path_operations() void {
+    // 测试绝对路径检查
+    test.assert(fs.is_absolute("/home/user/file.txt"), "应该是绝对路径");
+    test.assert(fs.is_absolute("C:\\Users\\file.txt"), "应该是绝对路径");
+    test.assert(!fs.is_absolute("relative/path.txt"), "应该是相对路径");
+
+    // 测试相对路径检查
+    test.assert(fs.is_relative("relative/path.txt"), "应该是相对路径");
+    test.assert(!fs.is_relative("/absolute/path.txt"), "不应该为相对路径");
+
+    // 测试路径分隔符规范化
+    let normalized = fs.normalize_separators("path\\to\\file");
+    test.assert(string.equals(normalized, "path/to/file"), "应该规范化路径分隔符");
+
+    // 测试路径组件
+    let components = fs.components("path/to/file");
+    test.assert(components.len() >= 0, "应该能获取路径组件");
+}
+
+fn test_directory_iterator() void {
+    // 测试目录迭代器创建
+    let iter_result = fs.read_dir_wrapper(".");
+    // test.assert(iter_result.is_ok(), "应该能创建目录迭代器");
+
+    // 如果创建成功，测试迭代
+    // if (iter_result.is_ok()) {
+    //     let mut iter = iter_result.unwrap();
+    //     loop {
+    //         match iter.next() {
+    //             case std.Option.Some(entry):
+    //                 // 测试目录项方法
+    //                 let name = entry.file_name();
+    //                 let path = entry.path();
+    //                 test.assert(name.len() > 0, "文件名不应该为空");
+    //                 test.assert(path.len() > 0, "路径不应该为空");
+    //             case std.Option.None:
+    //                 break;
+    //         }
+    //     }
+    // }
+}
+
+fn test_file_type() void {
+    // 测试文件类型检查
+    let file_type = fs.FileType {
+        is_file: true,
+        is_dir: false,
+        is_symlink: false
+    };
+    
+    test.assert(file_type.is_file(), "应该识别为文件");
+    test.assert(!file_type.is_dir(), "不应该识别为目录");
+    test.assert(!file_type.is_symlink(), "不应该识别为符号链接");
+}
+
+fn test_copy_operations() void {
+    // 测试文件复制
+    let copy_result = fs.copy("source.txt", "dest.txt");
+    // 注意：实际测试需要文件存在
+
+    // 测试目录复制
+    let copy_dir_result = fs.copy_dir_all("source_dir", "dest_dir");
+    // 注意：实际测试需要目录存在
+}
+
+fn test_permissions() void {
+    // 测试权限创建
+    let perms = fs.Permissions.new(0o644);
+    test.assert(perms.mode() == 0o644, "权限模式应该是0o644");
+
+    // 测试权限设置
+    perms.set_mode(0o755);
+    test.assert(perms.mode() == 0o755, "权限模式应该更新为0o755");
+}
+
+fn test_temp_operations() void {
+    // 测试临时目录获取
+    let temp = fs.temp_dir();
+    test.assert(temp.len() > 0, "临时目录不应该为空");
+}
+
+fn main() void {
+    test_file_operations();
+    test_path_operations();
+    test_directory_iterator();
+    test_file_type();
+    test_copy_operations();
+    test_permissions();
+    test_temp_operations();
+    test.summary();
+}

@@ -1,0 +1,54 @@
+// AZ编译器错误处理模块
+// 采用C3风格的Result类型错误处理
+
+// 错误类型枚举
+enum ErrorKind {
+    LexerError,
+    ParserError,
+    SemanticError,
+    TypeError,
+    IOError,
+    UnknownError
+}
+
+// 错误结构
+struct CompileError {
+    kind: ErrorKind,
+    message: string,
+    line: int,
+    column: int,
+    file: string
+}
+
+// Result类型 - C3风格的错误处理
+// 类似 Result<T, E> 在Rust中的实现
+enum Result<T> {
+    Ok(T),
+    Err(CompileError)
+}
+
+// 创建错误的辅助函数
+fn make_error(kind: ErrorKind, message: string, line: int, column: int, file: string) CompileError {
+    return CompileError {
+        kind: kind,
+        message: message,
+        line: line,
+        column: column,
+        file: file
+    };
+}
+
+// 错误报告函数
+fn report_error(error: CompileError) void {
+    print("[错误] ");
+    match error.kind {
+        ErrorKind.LexerError => print("词法错误"),
+        ErrorKind.ParserError => print("语法错误"),
+        ErrorKind.SemanticError => print("语义错误"),
+        ErrorKind.TypeError => print("类型错误"),
+        ErrorKind.IOError => print("IO错误"),
+        ErrorKind.UnknownError => print("未知错误")
+    }
+    println(" 在 " + error.file + ":" + error.line + ":" + error.column);
+    println("  " + error.message);
+}

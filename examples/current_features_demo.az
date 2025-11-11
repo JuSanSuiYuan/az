@@ -1,0 +1,58 @@
+// AZ语言当前支持的特性演示
+
+import std.io;
+
+fn add(a: int, b: int) int {
+    return a + b;
+}
+
+fn factorial(n: int) int {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+fn main() int {
+    println("=== AZ语言当前特性演示 ===");
+    println("");
+    
+    // 基本运算
+    let sum = add(3, 5);
+    println("3 + 5 = ");
+    println(sum);
+    println("");
+    
+    // 条件语句
+    let x = 10;
+    if (x > 5) {
+        println("x大于5");
+    } else {
+        println("x小于等于5");
+    }
+    println("");
+    
+    // 循环
+    println("计数到3:");
+    var i = 1;
+    while (i <= 3) {
+        print("  ");
+        println(i);
+        i = i + 1;
+    }
+    println("");
+    
+    // 递归函数
+    let fact = factorial(5);
+    println("5! = ");
+    println(fact);
+    println("");
+    
+    // 字符串操作
+    let hello = "Hello";
+    let world = "World";
+    let message = hello + ", " + world + "!";
+    println(message);
+    
+    return 0;
+}

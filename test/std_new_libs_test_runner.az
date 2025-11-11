@@ -1,0 +1,20 @@
+// std_new_libs_test_runner.az - 新标准库测试运行器
+module test.std_new_libs_test_runner;
+
+import std.test;
+
+// 导入所有新标准库测试
+import test.std_arraylist;
+import test.std_toml;
+import test.std_actor;
+
+fn main() void {
+    println("运行新标准库测试...");
+    
+    // 运行所有新标准库测试
+    test.std_arraylist.main();
+    test.std_toml.main();
+    test.std_actor.main();
+    
+    println("所有新标准库测试完成!");
+}

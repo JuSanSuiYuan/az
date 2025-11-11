@@ -1,0 +1,225 @@
+// AZ编译器抽象语法树(AST)定义
+
+// 表达式类型
+enum ExprKind {
+    IntLiteral,
+    FloatLiteral,
+    StringLiteral,
+    Identifier,
+    Binary,
+    Unary,
+    Call,
+    Index,
+    Member
+}
+
+// 表达式节点
+struct Expr {
+    kind: ExprKind,
+    // 根据kind不同，使用不同的字段
+    int_value: int,
+    float_value: float,
+    string_value: string,
+    name: string,
+    operator: string,
+    left: *Expr,
+    right: *Expr,
+    operand: *Expr,
+    callee: *Expr,
+    arguments: []*Expr,
+    object: *Expr,
+    member: string
+}
+
+// 语句类型
+enum StmtKind {
+    Expression,
+    VarDecl,
+    FuncDecl,
+    Return,
+    If,
+    While,
+    For,
+    Block,
+    Match
+}
+
+// 模式类型
+enum PatternKind {
+    Literal,      // 字面量模式: 1, "hello"
+    Identifier,   // 标识符模式: x
+    Wildcard,     // 通配符模式: _
+    Or            // 或模式: 1 | 2 | 3
+}
+
+// 模式节点
+struct Pattern {
+    kind: PatternKind,
+    // 根据kind不同，使用不同的字段
+    literal: *Expr,        // 字面量模式
+    name: string,          // 标识符模式
+    patterns: []*Pattern   // 或模式
+}
+
+// Match分支
+struct MatchArm {
+    pattern: *Pattern,
+    guard: *Expr,      // 可选的守卫条件
+    body: *Stmt
+}
+
+// 语句节点
+struct Stmt {
+    kind: StmtKind,
+    expr: *Expr,
+    name: string,
+    type_name: string,
+    is_mutable: bool,
+    initializer: *Expr,
+    params: []Param,
+    return_type: string,
+    body: *Stmt,
+    condition: *Expr,
+    then_branch: *Stmt,
+    else_branch: *Stmt,
+    statements: []*Stmt,
+    // Match语句字段
+    match_expr: *Expr,
+    match_arms: []MatchArm
+}
+
+// 函数参数
+struct Param {
+    name: string,
+    type_name: string
+}
+
+// 程序根节点
+struct Program {
+    statements: []*Stmt
+}
+
+// 创建表达式的辅助函数
+fn make_int_expr(value: int) *Expr {
+    return new Expr {
+        kind: ExprKind.IntLiteral,
+        int_value: value
+    };
+}
+
+fn make_string_expr(value: string) *Expr {
+    return new Expr {
+        kind: ExprKind.StringLiteral,
+        string_value: value
+    };
+}
+
+fn make_identifier_expr(name: string) *Expr {
+    return new Expr {
+        kind: ExprKind.Identifier,
+        name: name
+    };
+}
+
+fn make_binary_expr(operator: string, left: *Expr, right: *Expr) *Expr {
+    return new Expr {
+        kind: ExprKind.Binary,
+        operator: operator,
+        left: left,
+        right: right
+    };
+}
+
+fn make_call_expr(callee: *Expr, arguments: []*Expr) *Expr {
+    return new Expr {
+        kind: ExprKind.Call,
+        callee: callee,
+        arguments: arguments
+    };
+}
+
+// 创建语句的辅助函数
+fn make_expr_stmt(expr: *Expr) *Stmt {
+    return new Stmt {
+        kind: StmtKind.Expression,
+        expr: expr
+    };
+}
+
+fn make_var_decl(name: string, type_name: string, is_mutable: bool, initializer: *Expr) *Stmt {
+    return new Stmt {
+        kind: StmtKind.VarDecl,
+        name: name,
+        type_name: type_name,
+        is_mutable: is_mutable,
+        initializer: initializer
+    };
+}
+
+fn make_func_decl(name: string, params: []Param, return_type: string, body: *Stmt) *Stmt {
+    return new Stmt {
+        kind: StmtKind.FuncDecl,
+        name: name,
+        params: params,
+        return_type: return_type,
+        body: body
+    };
+}
+
+fn make_return_stmt(expr: *Expr) *Stmt {
+    return new Stmt {
+        kind: StmtKind.Return,
+        expr: expr
+    };
+}
+
+fn make_block_stmt(statements: []*Stmt) *Stmt {
+    return new Stmt {
+        kind: StmtKind.Block,
+        statements: statements
+    };
+}
+
+// 创建模式的辅助函数
+fn make_literal_pattern(literal: *Expr) *Pattern {
+    return new Pattern {
+        kind: PatternKind.Literal,
+        literal: literal
+    };
+}
+
+fn make_identifier_pattern(name: string) *Pattern {
+    return new Pattern {
+        kind: PatternKind.Identifier,
+        name: name
+    };
+}
+
+fn make_wildcard_pattern() *Pattern {
+    return new Pattern {
+        kind: PatternKind.Wildcard
+    };
+}
+
+fn make_or_pattern(patterns: []*Pattern) *Pattern {
+    return new Pattern {
+        kind: PatternKind.Or,
+        patterns: patterns
+    };
+}
+
+fn make_match_arm(pattern: *Pattern, guard: *Expr, body: *Stmt) MatchArm {
+    return MatchArm {
+        pattern: pattern,
+        guard: guard,
+        body: body
+    };
+}
+
+fn make_match_stmt(expr: *Expr, arms: []MatchArm) *Stmt {
+    return new Stmt {
+        kind: StmtKind.Match,
+        match_expr: expr,
+        match_arms: arms
+    };
+}

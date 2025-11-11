@@ -1,0 +1,9 @@
+// AZ语言示例 - Hello World
+
+import std.io;
+
+fn main() int {
+    println("Hello, AZ!");
+    println("欢迎使用AZ编程语言");
+    return 0;
+}

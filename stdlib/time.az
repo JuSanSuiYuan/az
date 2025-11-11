@@ -1,0 +1,229 @@
+// std.time - 时间和日期模块
+module std.time;
+
+// ============================================================================
+// 时间类型
+// ============================================================================
+
+struct Time {
+    seconds: int,
+    nanos: int,
+}
+
+struct Duration {
+    seconds: int,
+    nanos: int,
+}
+
+struct DateTime {
+    year: int,
+    month: int,
+    day: int,
+    hour: int,
+    minute: int,
+    second: int,
+}
+
+// ============================================================================
+// 时间获取
+// ============================================================================
+
+// 获取当前时间（Unix时间戳）
+extern fn az_now() Time;
+
+fn now() Time {
+    return az_now();
+}
+
+// 获取当前日期时间
+fn now_datetime() DateTime {
+    let t = now();
+    // 简化实现：返回固定值
+    // 实际实现应该将Unix时间戳转换为日期时间
+    return DateTime{
+        year: 2025,
+        month: 11,
+        day: 9,
+        hour: 10,
+        minute: 0,
+        second: 0,
+    };
+}
+
+// ============================================================================
+// 时间操作
+// ============================================================================
+
+// 创建Duration
+fn duration_from_secs(secs: int) Duration {
+    return Duration{ seconds: secs, nanos: 0 };
+}
+
+fn duration_from_millis(millis: int) Duration {
+    return Duration{
+        seconds: millis / 1000,
+        nanos: (millis % 1000) * 1000000,
+    };
+}
+
+fn duration_from_micros(micros: int) Duration {
+    return Duration{
+        seconds: micros / 1000000,
+        nanos: (micros % 1000000) * 1000,
+    };
+}
+
+fn duration_from_nanos(nanos: int) Duration {
+    return Duration{
+        seconds: nanos / 1000000000,
+        nanos: nanos % 1000000000,
+    };
+}
+
+// 时间加法
+fn time_add(t: Time, d: Duration) Time {
+    return Time{
+        seconds: t.seconds + d.seconds,
+        nanos: t.nanos + d.nanos,
+    };
+}
+
+// 时间减法
+fn time_sub(t1: Time, t2: Time) Duration {
+    return Duration{
+        seconds: t1.seconds - t2.seconds,
+        nanos: t1.nanos - t2.nanos,
+    };
+}
+
+// ============================================================================
+// 睡眠
+// ============================================================================
+
+// 睡眠（秒）
+extern fn az_sleep(secs: int) void;
+
+fn sleep(secs: int) void {
+    az_sleep(secs);
+}
+
+// 睡眠（毫秒）
+fn sleep_millis(millis: int) void {
+    // 将毫秒转换为秒和纳秒
+    let secs = millis / 1000;
+    let nanos = (millis % 1000) * 1000000;
+    
+    // 调用系统睡眠函数
+    // 实际实现应该支持纳秒级精度
+    az_sleep(secs);
+}
+
+// 睡眠（微秒）
+fn sleep_micros(micros: int) void {
+    // 将微秒转换为秒和纳秒
+    let secs = micros / 1000000;
+    let nanos = (micros % 1000000) * 1000;
+    
+    // 调用系统睡眠函数
+    // 实际实现应该支持纳秒级精度
+    az_sleep(secs);
+}
+
+// ============================================================================
+// 格式化
+// ============================================================================
+
+// 格式化时间
+fn format_time(t: Time, format: string) string {
+    // 简化实现：返回固定格式
+    // 实际实现应该根据format参数格式化时间
+    return "2025-11-09 10:00:00";
+}
+
+// 格式化日期时间
+fn format_datetime(dt: DateTime, format: string) string {
+    // 简化实现：返回固定格式
+    // 实际实现应该根据format参数格式化日期时间
+    return dt.year + "-" + dt.month + "-" + dt.day + " " + 
+           dt.hour + ":" + dt.minute + ":" + dt.second;
+}
+
+// 解析时间字符串
+fn parse_time(s: string, format: string) Result<Time, Error> {
+    // 简化实现：返回固定时间
+    // 实际实现应该解析时间字符串
+    return Ok(Time{ seconds: 0, nanos: 0 });
+}
+
+// ============================================================================
+// 计时器
+// ============================================================================
+
+struct Stopwatch {
+    start: Time,
+    elapsed: Duration,
+}
+
+// 创建计时器
+fn stopwatch_new() Stopwatch {
+    return Stopwatch{
+        start: now(),
+        elapsed: Duration{ seconds: 0, nanos: 0 },
+    };
+}
+
+// 开始计时
+fn stopwatch_start(self: Stopwatch) void {
+    self.start = now();
+}
+
+// 停止计时
+fn stopwatch_stop(self: Stopwatch) Duration {
+    let end = now();
+    self.elapsed = time_sub(end, self.start);
+    return self.elapsed;
+}
+
+// 重置计时器
+fn stopwatch_reset(self: Stopwatch) void {
+    self.start = now();
+    self.elapsed = Duration{ seconds: 0, nanos: 0 };
+}
+
+// 获取已用时间
+fn stopwatch_elapsed(self: Stopwatch) Duration {
+    return self.elapsed;
+}
+
+// ============================================================================
+// 随机数生成
+// ============================================================================
+
+// 设置随机数种子
+extern fn az_srand(seed: int) void;
+
+// 生成随机数
+extern fn az_rand() int;
+
+// 生成范围内的随机数
+extern fn az_rand_range(min: int, max: int) int;
+
+// 生成随机浮点数 [0, 1)
+extern fn az_rand_float() float;
+
+// 包装函数
+fn srand(seed: int) void {
+    az_srand(seed);
+}
+
+fn rand() int {
+    return az_rand();
+}
+
+fn rand_range(min: int, max: int) int {
+    return az_rand_range(min, max);
+}
+
+fn rand_float() float {
+    return az_rand_float();
+}

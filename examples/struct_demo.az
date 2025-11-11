@@ -1,0 +1,39 @@
+// Struct Demo
+
+import std.io;
+
+fn add(a: int, b: int) int {
+    return a + b;
+}
+
+struct Point {
+    x: int,
+    y: int,
+}
+
+fn new_point(x: int, y: int) Point {
+    return Point{x: x, y: y};
+}
+
+fn point_distance(p: Point) int {
+    return p.x * p.x + p.y * p.y;
+}
+
+fn main() int {
+    let sum = add(3, 5);
+    println("3 + 5 = ");
+    println(sum);
+    
+    let point = new_point(3, 4);
+    println("Point coordinates: (");
+    println(point.x);
+    print(", ");
+    println(point.y);
+    println(")");
+    
+    let distance = point_distance(point);
+    println("Distance squared to origin: ");
+    println(distance);
+    
+    return 0;
+}

@@ -1,0 +1,216 @@
+// Actor消息传递系统演示程序
+import std.actor.messaging.{MessageQueueManager, MessageSender, MessagePriority, MessageEnvelope, new_message_envelope};
+import std.actor.runtime.{RuntimeManager, new_runtime_manager};
+import std.actor.{ActorSystem, new_system, default_config, ActorId, new_actor_id, actor_id_to_string};
+import std.time.{now, srand, rand, sleep_millis};
+import std.string;
+import std.io.{println};
+
+// 简单的消息实现
+struct SimpleMessage {
+    content: string,
+    value: int,
+}
+
+impl Message for SimpleMessage {}
+
+// 简单的消息路由器实现
+struct SimpleMessageRouter {}
+
+impl MessageRouter for SimpleMessageRouter {
+    fn route_message(self: *Self, envelope: MessageEnvelope) Result<void, Error> {
+        println("路由消息: " + envelope.sender_id.id + " -> " + /* 目标Actor ID */ "unknown");
+        return Result.Ok(void);
+    }
+}
+
+// 简单的消息中间件实现
+struct LoggingMiddleware {
+    name: string,
+}
+
+impl MessageMiddleware for LoggingMiddleware {
+    fn process_incoming(self: *Self, envelope: MessageEnvelope) Result<MessageEnvelope, Error> {
+        println(self.name + ": 处理传入消息 from " + actor_id_to_string(envelope.sender_id));
+        return Result.Ok(envelope);
+    }
+    
+    fn process_outgoing(self: *Self, envelope: MessageEnvelope) Result<MessageEnvelope, Error> {
+        println(self.name + ": 处理传出消息 from " + actor_id_to_string(envelope.sender_id));
+        return Result.Ok(envelope);
+    }
+}
+
+fn main() int {
+    // 初始化随机数种子
+    let current_time = now();
+    srand(current_time.seconds as int);
+    
+    println("=== Actor消息传递系统演示 ===");
+    
+    // 创建Actor系统
+    let config = default_config();
+    let actor_system = new_system(config);
+    
+    // 创建运行时管理器
+    let runtime_manager = new_runtime_manager(&actor_system);
+    
+    // 创建消息路由器
+    let router = SimpleMessageRouter {};
+    
+    // 创建消息队列管理器
+    let mut queue_manager = new_message_queue_manager(&router);
+    
+    // 创建消息发送器
+    let sender = new_message_sender(&runtime_manager, &queue_manager);
+    
+    // 创建中间件
+    let middleware1 = LoggingMiddleware { name: "日志中间件1" };
+    let middleware2 = LoggingMiddleware { name: "日志中间件2" };
+    
+    // 添加中间件
+    queue_manager.add_middleware(&middleware1);
+    queue_manager.add_middleware(&middleware2);
+    
+    // 创建Actor ID
+    let sender_id = new_actor_id("sender-1");
+    let receiver_id = new_actor_id("receiver-1");
+    
+    // 创建Actor引用（简化实现）
+    struct SimpleActorRef {
+        id: ActorId,
+    }
+    
+    let receiver_ref = SimpleActorRef { id: receiver_id };
+    
+    // 创建消息
+    let message1 = SimpleMessage { content: "Hello, Actor!", value: 42 };
+    let message2 = SimpleMessage { content: "Another message", value: 100 };
+    
+    println("\n发送普通消息:");
+    
+    // 发送普通消息
+    let send_result1 = sender.send_message(receiver_ref, &message1, sender_id);
+    if (send_result1.is_err()) {
+        println("发送消息失败: " + send_result1.unwrap_err().message);
+    } else {
+        println("消息发送成功");
+    }
+    
+    println("\n发送高优先级消息:");
+    
+    // 发送高优先级消息
+    let send_result2 = sender.send_priority_message(receiver_ref, &message2, sender_id, MessagePriority.High);
+    if (send_result2.is_err()) {
+        println("发送高优先级消息失败: " + send_result2.unwrap_err().message);
+    } else {
+        println("高优先级消息发送成功");
+    }
+    
+    println("\n发送延迟消息:");
+    
+    // 发送延迟消息（延迟1秒）
+    let delayed_message = SimpleMessage { content: "Delayed message", value: 200 };
+    let send_result3 = sender.send_delayed_message(receiver_ref, &delayed_message, sender_id, 1000);
+    if (send_result3.is_err()) {
+        println("发送延迟消息失败: " + send_result3.unwrap_err().message);
+    } else {
+        println("延迟消息已排队");
+    }
+    
+    println("\n发送带TTL的消息:");
+    
+    // 发送带TTL的消息（5秒后过期）
+    let ttl_message = SimpleMessage { content: "TTL message", value: 300 };
+    let send_result4 = sender.send_message_with_ttl(receiver_ref, &ttl_message, sender_id, 5000);
+    if (send_result4.is_err()) {
+        println("发送TTL消息失败: " + send_result4.unwrap_err().message);
+    } else {
+        println("TTL消息发送成功");
+    }
+    
+    // 显示队列统计
+    println("\n消息队列统计:");
+    let stats = queue_manager.get_stats();
+    println("  总消息数: " + string.from_int(stats.total_messages));
+    println("  已交付消息数: " + string.from_int(stats.delivered_messages));
+    println("  已丢弃消息数: " + string.from_int(stats.dropped_messages));
+    println("  延迟消息数: " + string.from_int(stats.delayed_messages));
+    println("  关键队列大小: " + string.from_int(stats.queue_sizes[0]));
+    println("  高优先级队列大小: " + string.from_int(stats.queue_sizes[1]));
+    println("  正常队列大小: " + string.from_int(stats.queue_sizes[2]));
+    println("  低优先级队列大小: " + string.from_int(stats.queue_sizes[3]));
+    
+    // 处理延迟消息
+    println("\n处理延迟消息:");
+    queue_manager.process_delayed_messages();
+    
+    // 从队列中获取消息
+    println("\n从队列中获取消息:");
+    let msg1 = queue_manager.dequeue_message();
+    if (msg1.is_some()) {
+        let envelope = msg1.unwrap();
+        println("获取到消息，优先级: " + message_priority_to_string(envelope.priority));
+    }
+    
+    let msg2 = queue_manager.dequeue_message();
+    if (msg2.is_some()) {
+        let envelope = msg2.unwrap();
+        println("获取到消息，优先级: " + message_priority_to_string(envelope.priority));
+    }
+    
+    // 创建消息通道
+    println("\n创建消息通道:");
+    let channel_result = queue_manager.create_channel("test-channel");
+    if (channel_result.is_err()) {
+        println("创建通道失败: " + channel_result.unwrap_err().message);
+    } else {
+        println("通道创建成功");
+    }
+    
+    // 订阅通道
+    println("\n订阅通道:");
+    let subscribe_result = queue_manager.subscribe_to_channel("test-channel", receiver_id);
+    if (subscribe_result.is_err()) {
+        println("订阅通道失败: " + subscribe_result.unwrap_err().message);
+    } else {
+        println("订阅通道成功");
+    }
+    
+    // 向通道发布消息
+    println("\n向通道发布消息:");
+    let channel_message = SimpleMessage { content: "Channel message", value: 400 };
+    let publish_result = queue_manager.publish_to_channel("test-channel", &channel_message, sender_id);
+    if (publish_result.is_err()) {
+        println("发布消息到通道失败: " + publish_result.unwrap_err().message);
+    } else {
+        println("消息已发布到通道");
+    }
+    
+    println("\n=== 演示完成 ===");
+    
+    return 0;
+}
+
+// 消息优先级转字符串
+fn message_priority_to_string(priority: MessagePriority) string {
+    match priority {
+        MessagePriority.Low => {
+            return "Low";
+        },
+        MessagePriority.Normal => {
+            return "Normal";
+        },
+        MessagePriority.High => {
+            return "High";
+        },
+        MessagePriority.Critical => {
+            return "Critical";
+        }
+    }
+}
+
+// 简单的Actor引用实现
+impl<T> ActorRef<T> for SimpleActorRef {
+    // 这里只是演示，实际实现会更复杂
+}

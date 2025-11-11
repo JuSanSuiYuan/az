@@ -1,0 +1,22 @@
+name = "az-project"
+version = "0.1.0"
+description = "A sample AZ language project"
+main = "src/main.az"
+
+[scripts]
+build = "az build"
+test = "az test"
+run = "az run"
+
+[dependencies]
+# 项目依赖将在这里声明
+
+[dev-dependencies]
+# 开发依赖将在这里声明
+
+[workspace]
+# workspace配置，类似pnpm的workspace功能
+members = [
+  # "packages/*",
+  # "apps/*"
+]

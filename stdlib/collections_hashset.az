@@ -1,0 +1,239 @@
+// std.collections.HashSet - 集合
+// 版本: v1.0.0
+// 日期: 2025-10-30
+
+module std.collections.hashset;
+
+import std.error.Option;
+import std.collections.hashmap.HashMap;
+import std.collections.vec.Vec;
+
+// ============================================================================
+// HashSet<T> - 集合（基于HashMap实现）
+// ============================================================================
+
+/// 集合类型
+pub struct HashSet<T> {
+    map: HashMap<T, bool>
+}
+
+// ============================================================================
+// 构造函数
+// ============================================================================
+
+/// 创建新的HashSet
+pub fn new<T>() HashSet<T> {
+    return HashSet<T> {
+        map: HashMap<T, bool>.new()
+    };
+}
+
+/// 创建指定容量的HashSet
+pub fn with_capacity<T>(capacity: int) HashSet<T> {
+    return HashSet<T> {
+        map: HashMap<T, bool>.with_capacity(capacity)
+    };
+}
+
+// ============================================================================
+// 基础操作
+// ============================================================================
+
+/// 获取大小
+pub fn (self: *HashSet<T>) len() int {
+    return self.map.len();
+}
+
+/// 检查是否为空
+pub fn (self: *HashSet<T>) is_empty() bool {
+    return self.map.is_empty();
+}
+
+/// 清空HashSet
+pub fn (self: *HashSet<T>) clear() void {
+    self.map.clear();
+}
+
+// ============================================================================
+// 插入和删除
+// ============================================================================
+
+/// 插入元素
+pub fn (self: *HashSet<T>) insert(item: T) bool {
+    let old = self.map.insert(item, true);
+    return old.is_none();  // 如果是新插入返回true
+}
+
+/// 移除元素
+pub fn (self: *HashSet<T>) remove(item: T) bool {
+    return self.map.remove(item).is_some();
+}
+
+/// 检查是否包含元素
+pub fn (self: *HashSet<T>) contains(item: T) bool {
+    return self.map.contains_key(item);
+}
+
+// ============================================================================
+// 集合操作
+// ============================================================================
+
+/// 并集
+pub fn (self: *HashSet<T>) union(other: *HashSet<T>) HashSet<T> {
+    let result = self.clone();
+    
+    let other_items = other.to_vec();
+    for (var i = 0; i < other_items.len(); i = i + 1) {
+        result.insert(other_items.get(i).unwrap());
+    }
+    
+    return result;
+}
+
+/// 交集
+pub fn (self: *HashSet<T>) intersection(other: *HashSet<T>) HashSet<T> {
+    let result = new<T>();
+    
+    let self_items = self.to_vec();
+    for (var i = 0; i < self_items.len(); i = i + 1) {
+        let item = self_items.get(i).unwrap();
+        if (other.contains(item)) {
+            result.insert(item);
+        }
+    }
+    
+    return result;
+}
+
+/// 差集
+pub fn (self: *HashSet<T>) difference(other: *HashSet<T>) HashSet<T> {
+    let result = new<T>();
+    
+    let self_items = self.to_vec();
+    for (var i = 0; i < self_items.len(); i = i + 1) {
+        let item = self_items.get(i).unwrap();
+        if (!other.contains(item)) {
+            result.insert(item);
+        }
+    }
+    
+    return result;
+}
+
+/// 对称差集
+pub fn (self: *HashSet<T>) symmetric_difference(other: *HashSet<T>) HashSet<T> {
+    let result = new<T>();
+    
+    // 添加self中不在other中的元素
+    let self_items = self.to_vec();
+    for (var i = 0; i < self_items.len(); i = i + 1) {
+        let item = self_items.get(i).unwrap();
+        if (!other.contains(item)) {
+            result.insert(item);
+        }
+    }
+    
+    // 添加other中不在self中的元素
+    let other_items = other.to_vec();
+    for (var i = 0; i < other_items.len(); i = i + 1) {
+        let item = other_items.get(i).unwrap();
+        if (!self.contains(item)) {
+            result.insert(item);
+        }
+    }
+    
+    return result;
+}
+
+// ============================================================================
+// 子集和超集
+// ============================================================================
+
+/// 检查是否是子集
+pub fn (self: *HashSet<T>) is_subset(other: *HashSet<T>) bool {
+    if (self.len() > other.len()) {
+        return false;
+    }
+    
+    let self_items = self.to_vec();
+    for (var i = 0; i < self_items.len(); i = i + 1) {
+        if (!other.contains(self_items.get(i).unwrap())) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+/// 检查是否是超集
+pub fn (self: *HashSet<T>) is_superset(other: *HashSet<T>) bool {
+    return other.is_subset(self);
+}
+
+/// 检查是否不相交
+pub fn (self: *HashSet<T>) is_disjoint(other: *HashSet<T>) bool {
+    let self_items = self.to_vec();
+    for (var i = 0; i < self_items.len(); i = i + 1) {
+        if (other.contains(self_items.get(i).unwrap())) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// ============================================================================
+// 转换
+// ============================================================================
+
+/// 转换为Vec
+pub fn (self: *HashSet<T>) to_vec() Vec<T> {
+    return self.map.keys();
+}
+
+/// 克隆HashSet
+pub fn (self: *HashSet<T>) clone() HashSet<T> {
+    let result = with_capacity<T>(self.len());
+    
+    let items = self.to_vec();
+    for (var i = 0; i < items.len(); i = i + 1) {
+        result.insert(items.get(i).unwrap());
+    }
+    
+    return result;
+}
+
+// ============================================================================
+// 迭代
+// ============================================================================
+
+/// 对每个元素执行函数
+pub fn (self: *HashSet<T>) for_each(f: fn(T) void) void {
+    let items = self.to_vec();
+    for (var i = 0; i < items.len(); i = i + 1) {
+        f(items.get(i).unwrap());
+    }
+}
+
+/// 过滤元素
+pub fn (self: *HashSet<T>) filter(f: fn(T) bool) HashSet<T> {
+    let result = new<T>();
+    
+    let items = self.to_vec();
+    for (var i = 0; i < items.len(); i = i + 1) {
+        let item = items.get(i).unwrap();
+        if (f(item)) {
+            result.insert(item);
+        }
+    }
+    
+    return result;
+}
+
+// ============================================================================
+// 内存管理
+// ============================================================================
+
+/// 释放HashSet的内存
+pub fn (self: *HashSet<T>) drop() void {
+    self.map.drop();
+}

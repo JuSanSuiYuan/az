@@ -1,0 +1,82 @@
+// AZ Language Features Demo
+
+import std.io;
+
+// Function with multiple parameters
+fn calculate_area(length: int, width: int) int {
+    return length * width;
+}
+
+// Function with conditional logic
+fn max(a: int, b: int) int {
+    if (a > b) {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+// Recursive function
+fn factorial(n: int) int {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+fn main() int {
+    println("=== AZ Language Features Demo ===");
+    println("");
+    
+    // Function calls
+    let area = calculate_area(5, 3);
+    println("Area of 5x3 rectangle: ");
+    println(area);
+    println("");
+    
+    // Conditional function
+    let larger = max(10, 7);
+    println("Larger of 10 and 7: ");
+    println(larger);
+    println("");
+    
+    // Recursive function
+    let fact = factorial(5);
+    println("5! = ");
+    println(fact);
+    println("");
+    
+    // Variables and expressions
+    let x = 10;
+    let y = 20;
+    let sum = x + y;
+    let product = x * y;
+    
+    println("x = ");
+    println(x);
+    println("y = ");
+    println(y);
+    println("x + y = ");
+    println(sum);
+    println("x * y = ");
+    println(product);
+    println("");
+    
+    // Control structures
+    println("Counting from 1 to 5:");
+    var i = 1;
+    while (i <= 5) {
+        print("  ");
+        println(i);
+        i = i + 1;
+    }
+    println("");
+    
+    // String operations
+    let greeting = "Hello";
+    let name = "AZ";
+    let message = greeting + ", " + name + "!";
+    println(message);
+    
+    return 0;
+}

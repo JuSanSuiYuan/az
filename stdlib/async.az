@@ -1,0 +1,506 @@
+// std.async - 异步编程模块
+// 提供异步操作和流式响应功能
+module std.async;
+
+import std.error.{Result, Error};
+import std.collections.{Vec, Queue};
+import std.time;
+import std.mem;
+import std.string;
+
+// ============================================================================
+// 异步编程相关类型定义
+// ============================================================================
+
+// 任务状态
+enum TaskStatus {
+    Pending,     // 等待中
+    Running,     // 运行中
+    Completed,   // 已完成
+    Failed,      // 已失败
+    Cancelled,   // 已取消
+}
+
+// 任务结果
+enum TaskResult<T> {
+    Success(T),     // 成功结果
+    Failure(Error), // 失败结果
+}
+
+// 异步任务
+struct Task<T> {
+    id: int,                    // 任务ID
+    status: TaskStatus,         // 任务状态
+    result: Option<TaskResult<T>>, // 任务结果
+    promise: *Promise<T>,       // 关联的Promise
+    cancellation_token: CancellationToken, // 取消令牌
+}
+
+// Promise
+struct Promise<T> {
+    task: *Task<T>,            // 关联的任务
+    result: Option<TaskResult<T>>, // 结果
+}
+
+// Future
+struct Future<T> {
+    task: *Task<T>,            // 关联的任务
+}
+
+// 取消令牌
+struct CancellationToken {
+    is_cancelled: bool,        // 是否已取消
+    callbacks: Vec<fn() void>, // 取消回调
+}
+
+// 取消令牌源
+struct CancellationTokenSource {
+    token: CancellationToken,
+}
+
+// 异步流
+struct AsyncStream<T> {
+    items: Queue<T>,           // 项目队列
+    is_completed: bool,        // 是否已完成
+    error: Option<Error>,      // 错误信息
+}
+
+// 异步迭代器
+interface AsyncIterator<T> {
+    fn next(self: *Self) Future<Option<T>>;
+}
+
+// ============================================================================
+// 取消令牌实现
+// ============================================================================
+
+// 创建取消令牌源
+fn new_cancellation_token_source() CancellationTokenSource {
+    return CancellationTokenSource {
+        token: CancellationToken {
+            is_cancelled: false,
+            callbacks: Vec.new(),
+        },
+    };
+}
+
+// 取消操作
+fn (self: *CancellationTokenSource) cancel() void {
+    self.token.is_cancelled = true;
+    
+    // 调用所有回调
+    for (self.token.callbacks) |callback| {
+        callback();
+    }
+}
+
+// 注册取消回调
+fn (self: *CancellationToken) register_callback(callback: fn() void) void {
+    if (self.is_cancelled) {
+        // 如果已经取消，立即调用回调
+        callback();
+    } else {
+        self.callbacks.push(callback);
+    }
+}
+
+// 检查是否已取消
+fn (self: *CancellationToken) is_cancelled() bool {
+    return self.is_cancelled;
+}
+
+// ============================================================================
+// Promise和Future实现
+// ============================================================================
+
+// 创建Promise
+fn new_promise<T>() Promise<T> {
+    let task = malloc(sizeof(Task<T>)) as *Task<T>;
+    
+    let promise = Promise<T> {
+        task: task,
+        result: Option.None,
+    };
+    
+    task.id = get_next_task_id();
+    task.status = TaskStatus.Pending;
+    task.result = Option.None;
+    task.promise = &promise;
+    task.cancellation_token = CancellationToken {
+        is_cancelled: false,
+        callbacks: Vec.new(),
+    };
+    
+    return promise;
+}
+
+// 完成Promise（成功）
+fn (self: *Promise<T>) resolve(value: T) void {
+    self.task.status = TaskStatus.Completed;
+    self.result = Option.Some(TaskResult.Success(value));
+    self.task.result = Option.Some(TaskResult.Success(value));
+}
+
+// 完成Promise（失败）
+fn (self: *Promise<T>) reject(error: Error) void {
+    self.task.status = TaskStatus.Failed;
+    self.result = Option.Some(TaskResult.Failure(error));
+    self.task.result = Option.Some(TaskResult.Failure(error));
+}
+
+// 获取Future
+fn (self: *Promise<T>) get_future() Future<T> {
+    return Future<T> {
+        task: self.task,
+    };
+}
+
+// ============================================================================
+// Task实现
+// ============================================================================
+
+// 全局任务ID计数器
+var global_task_id: int = 1;
+
+// 获取下一个任务ID
+fn get_next_task_id() int {
+    let id = global_task_id;
+    global_task_id = global_task_id + 1;
+    return id;
+}
+
+// 创建任务
+fn new_task<T>() Task<T> {
+    return Task<T> {
+        id: get_next_task_id(),
+        status: TaskStatus.Pending,
+        result: Option.None,
+        promise: null,
+        cancellation_token: CancellationToken {
+            is_cancelled: false,
+            callbacks: Vec.new(),
+        },
+    };
+}
+
+// 检查任务是否完成
+fn (self: *Task<T>) is_completed() bool {
+    return self.status == TaskStatus.Completed || self.status == TaskStatus.Failed;
+}
+
+// 获取任务结果
+fn (self: *Task<T>) get_result() Option<TaskResult<T>> {
+    return self.result;
+}
+
+// 取消任务
+fn (self: *Task<T>) cancel() void {
+    if (self.status == TaskStatus.Pending || self.status == TaskStatus.Running) {
+        self.status = TaskStatus.Cancelled;
+        self.cancellation_token.is_cancelled = true;
+    }
+}
+
+// ============================================================================
+// Future实现
+// ============================================================================
+
+// 检查Future是否完成
+fn (self: *Future<T>) is_completed() bool {
+    return self.task.is_completed();
+}
+
+// 等待Future完成
+fn (self: *Future<T>) wait() TaskResult<T> {
+    // 简单的忙等待实现
+    // 在实际实现中应该使用更高效的等待机制
+    while (!self.is_completed()) {
+        time.sleep_millis(1);
+    }
+    
+    let result = self.task.get_result();
+    if (result.is_some()) {
+        return result.unwrap();
+    }
+    
+    // 默认返回失败结果
+    return TaskResult.Failure(Error.new("任务无结果"));
+}
+
+// 异步等待Future（非阻塞）
+fn (self: *Future<T>) await() Future<TaskResult<T>> {
+    // 这是一个概念实现
+    // 实际实现需要运行时支持
+    let promise = new_promise<TaskResult<T>>();
+    let future = promise.get_future();
+    
+    // TODO: 实际的异步等待逻辑
+    
+    return future;
+}
+
+// ============================================================================
+// 异步流实现
+// ============================================================================
+
+// 创建异步流
+fn new_async_stream<T>() AsyncStream<T> {
+    return AsyncStream<T> {
+        items: Queue.new(),
+        is_completed: false,
+        error: Option.None,
+    };
+}
+
+// 向流中添加项目
+fn (self: *AsyncStream<T>) push(item: T) Result<void, Error> {
+    if (self.is_completed) {
+        return Result.Err(Error.new("流已完成"));
+    }
+    
+    self.items.enqueue(item);
+    return Result.Ok(void);
+}
+
+// 完成流
+fn (self: *AsyncStream<T>) complete() void {
+    self.is_completed = true;
+}
+
+// 在流中设置错误
+fn (self: *AsyncStream<T>) set_error(error: Error) void {
+    self.error = Option.Some(error);
+    self.is_completed = true;
+}
+
+// 检查流是否已完成
+fn (self: *AsyncStream<T>) is_completed() bool {
+    return self.is_completed;
+}
+
+// 获取下一个项目
+fn (self: *AsyncStream<T>) next() Future<Option<T>> {
+    let promise = new_promise<Option<T>>();
+    let future = promise.get_future();
+    
+    if (self.error.is_some()) {
+        promise.reject(self.error.unwrap());
+    } else if (self.items.is_empty() && self.is_completed) {
+        promise.resolve(Option.None);
+    } else if (!self.items.is_empty()) {
+        let item = self.items.dequeue().unwrap();
+        promise.resolve(Option.Some(item));
+    }
+    // 如果队列为空但未完成，需要等待更多数据
+    // 这需要更复杂的实现
+    
+    return future;
+}
+
+// ============================================================================
+// 异步辅助函数
+// ============================================================================
+
+// 延迟执行
+fn delay(ms: int) Future<void> {
+    let promise = new_promise<void>();
+    let future = promise.get_future();
+    
+    // 创建后台任务来处理延迟
+    spawn_background_task(fn() void {
+        time.sleep_millis(ms);
+        promise.resolve(void);
+    });
+    
+    return future;
+}
+
+// 并行执行多个任务
+fn when_all<T>(futures: []Future<T>) Future<[]TaskResult<T>> {
+    let promise = new_promise<[]TaskResult<T>>();
+    let future = promise.get_future();
+    
+    // 创建后台任务来等待所有Future完成
+    spawn_background_task(fn() void {
+        let mut results = Vec.new();
+        let mut all_completed = false;
+        
+        while (!all_completed) {
+            all_completed = true;
+            results.clear();
+            
+            for (futures) |f| {
+                if (f.is_completed()) {
+                    let result = f.wait();
+                    results.push(result);
+                } else {
+                    all_completed = false;
+                }
+            }
+            
+            if (!all_completed) {
+                time.sleep_millis(1);
+            }
+        }
+        
+        promise.resolve(results.to_array());
+    });
+    
+    return future;
+}
+
+// 竞争执行多个任务（返回第一个完成的）
+fn when_any<T>(futures: []Future<T>) Future<(int, TaskResult<T>)> {
+    let promise = new_promise<(int, TaskResult<T>)>();
+    let future = promise.get_future();
+    
+    // 创建后台任务来等待任一Future完成
+    spawn_background_task(fn() void {
+        loop {
+            for (var i = 0; i < futures.len(); i = i + 1) {
+                let f = futures.get(i);
+                if (f.is_completed()) {
+                    let result = f.wait();
+                    promise.resolve((i, result));
+                    return;
+                }
+            }
+            
+            time.sleep_millis(1);
+        }
+    });
+    
+    return future;
+}
+
+// ============================================================================
+// 流式处理函数
+// ============================================================================
+
+// 流式映射
+fn stream_map<T, U>(stream: *AsyncStream<T>, mapper: fn(T) U) AsyncStream<U> {
+    let result_stream = new_async_stream<U>();
+    
+    // 创建后台任务处理映射
+    spawn_background_task(fn() void {
+        loop {
+            let next_future = stream.next();
+            let next_result = next_future.wait();
+            
+            match next_result {
+                TaskResult.Success(option) => {
+                    if (option.is_some()) {
+                        let value = option.unwrap();
+                        let mapped_value = mapper(value);
+                        result_stream.push(mapped_value);
+                    } else {
+                        // 流已完成
+                        result_stream.complete();
+                        break;
+                    }
+                },
+                TaskResult.Failure(error) => {
+                    result_stream.set_error(error);
+                    break;
+                }
+            }
+        }
+    });
+    
+    return result_stream;
+}
+
+// 流式过滤
+fn stream_filter<T>(stream: *AsyncStream<T>, predicate: fn(T) bool) AsyncStream<T> {
+    let result_stream = new_async_stream<T>();
+    
+    // 创建后台任务处理过滤
+    spawn_background_task(fn() void {
+        loop {
+            let next_future = stream.next();
+            let next_result = next_future.wait();
+            
+            match next_result {
+                TaskResult.Success(option) => {
+                    if (option.is_some()) {
+                        let value = option.unwrap();
+                        if (predicate(value)) {
+                            result_stream.push(value);
+                        }
+                        // 不满足条件的项目被过滤掉
+                    } else {
+                        // 流已完成
+                        result_stream.complete();
+                        break;
+                    }
+                },
+                TaskResult.Failure(error) => {
+                    result_stream.set_error(error);
+                    break;
+                }
+            }
+        }
+    });
+    
+    return result_stream;
+}
+
+// 流式聚合
+fn stream_reduce<T, U>(stream: *AsyncStream<T>, initial: U, reducer: fn(U, T) U) Future<U> {
+    let promise = new_promise<U>();
+    let future = promise.get_future();
+    
+    // 创建后台任务处理聚合
+    spawn_background_task(fn() void {
+        let mut accumulator = initial;
+        
+        loop {
+            let next_future = stream.next();
+            let next_result = next_future.wait();
+            
+            match next_result {
+                TaskResult.Success(option) => {
+                    if (option.is_some()) {
+                        let value = option.unwrap();
+                        accumulator = reducer(accumulator, value);
+                    } else {
+                        // 流已完成，返回最终结果
+                        promise.resolve(accumulator);
+                        break;
+                    }
+                },
+                TaskResult.Failure(error) => {
+                    promise.reject(error);
+                    break;
+                }
+            }
+        }
+    });
+    
+    return future;
+}
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+// 创建后台任务（占位实现）
+fn spawn_background_task(task: fn() void) void {
+    // TODO: 实际实现需要运行时支持
+    // 这里只是一个概念实现
+    task();
+}
+
+// 创建已完成的任务
+fn completed_task<T>(value: T) Future<T> {
+    let promise = new_promise<T>();
+    promise.resolve(value);
+    return promise.get_future();
+}
+
+// 创建失败的任务
+fn failed_task<T>(error: Error) Future<T> {
+    let promise = new_promise<T>();
+    promise.reject(error);
+    return promise.get_future();
+}

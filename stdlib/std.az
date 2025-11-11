@@ -1,0 +1,26 @@
+// AZ标准库主入口
+// 导入所有标准库模块
+
+// 核心模块
+import std.io;
+import std.string;
+import std.fs;
+import std.collections;
+import std.mem;
+import std.math;
+import std.os;
+import std.time;
+import std.convert;
+import std.error;
+
+// 扩展模块
+import std.collections_arraylist;
+import std.collections_arraylist_gc;
+import std.toml;
+import std.actor_main;
+import std.net;
+import std.net_gc;
+
+// 版本信息
+const STD_VERSION: string = "0.1.0";
+const STD_BUILD: string = "2025-11-09";

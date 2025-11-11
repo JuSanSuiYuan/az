@@ -1,0 +1,452 @@
+// std.collections.arraylist - 动态数组列表
+// 结合C# List<T> 和 Java ArrayList 的优点
+// 使用大括号表示显式内存管理（类似Zig）
+module std.collections.arraylist;
+
+import std.error.{Result, Option};
+import std.collections.vec.{Vec};
+import std.mem;
+
+// ============================================================================
+// ArrayList<T> - 动态数组列表（显式内存管理）
+// ============================================================================
+
+/// 动态数组列表类型，结合C# List<T> 和 Java ArrayList 的优点
+/// 使用显式内存管理（类似Zig）
+pub struct ArrayList<T> {
+    vec: Vec<T>
+}
+
+// ============================================================================
+// 构造函数 (类似C#和Java)
+// ============================================================================
+
+/// 创建新的空ArrayList (类似Java ArrayList())
+pub fn new<T>() ArrayList<T> {
+    return ArrayList<T> {
+        vec: Vec.new()
+    };
+}
+
+/// 创建指定容量的ArrayList (类似Java ArrayList(int capacity))
+pub fn with_capacity<T>(capacity: int) ArrayList<T> {
+    return ArrayList<T> {
+        vec: Vec.with_capacity(capacity)
+    };
+}
+
+/// 从数组创建ArrayList (类似Java Arrays.asList().addAll())
+pub fn from_array<T>(arr: []T, len: int) ArrayList<T> {
+    return ArrayList<T> {
+        vec: Vec.from_array(arr, len)
+    };
+}
+
+/// 从Vec创建ArrayList
+pub fn from_vec<T>(vec: Vec<T>) ArrayList<T> {
+    return ArrayList<T> {
+        vec: vec
+    };
+}
+
+/// 从集合创建ArrayList (类似Java ArrayList(Collection<? extends E> c))
+pub fn from_collection<T>(collection: ArrayList<T>) ArrayList<T> {
+    return ArrayList<T> {
+        vec: collection.vec.clone()
+    };
+}
+
+// ============================================================================
+// 属性 (类似C# Properties)
+// ============================================================================
+
+/// 获取长度 (类似Java size() 和 C# Count)
+pub fn (self: *ArrayList<T>) len() int {
+    return self.vec.len();
+}
+
+/// 获取长度 (C#风格属性)
+pub fn (self: *ArrayList<T>) Count() int {
+    return self.vec.len();
+}
+
+/// 获取容量
+pub fn (self: *ArrayList<T>) capacity() int {
+    return self.vec.capacity();
+}
+
+/// 检查是否为空
+pub fn (self: *ArrayList<T>) is_empty() bool {
+    return self.vec.is_empty();
+}
+
+// ============================================================================
+// 添加元素 (结合C#和Java的优点)
+// ============================================================================
+
+/// 在末尾添加元素 (类似Java add(E) 和 C# Add(T))
+pub fn (self: *ArrayList<T>) add(item: T) bool {
+    self.vec.push(item);
+    return true; // Java风格返回值
+}
+
+/// 在末尾添加元素 (C#风格命名)
+pub fn (self: *ArrayList<T>) Add(item: T) void {
+    self.vec.push(item);
+}
+
+/// 在指定位置插入元素 (类似Java add(int, E) 和 C# Insert(int, T))
+pub fn (self: *ArrayList<T>) insert(index: int, item: T) void {
+    self.vec.insert(index, item);
+}
+
+/// 在指定位置插入元素 (Java风格命名)
+pub fn (self: *ArrayList<T>) add_at(index: int, item: T) void {
+    self.vec.insert(index, item);
+}
+
+/// 添加所有元素 (类似Java addAll(Collection<? extends E>) 和 C# AddRange(IEnumerable<T>))
+pub fn (self: *ArrayList<T>) add_range(other: ArrayList<T>) void {
+    for (var i = 0; i < other.len(); i = i + 1) {
+        match other.get(i) {
+            case Option.Some(item):
+                self.vec.push(item);
+            case Option.None:
+                // 忽略
+        }
+    }
+}
+
+// ============================================================================
+// 删除元素
+// ============================================================================
+
+/// 移除并返回最后一个元素 (类似Java remove() 和 C# RemoveAt(Count-1))
+pub fn (self: *ArrayList<T>) pop() Option<T> {
+    return self.vec.pop();
+}
+
+/// 移除指定位置的元素 (类似Java remove(int) 和 C# RemoveAt(int))
+pub fn (self: *ArrayList<T>) remove_at(index: int) Option<T> {
+    return self.vec.remove(index);
+}
+
+/// 移除指定位置的元素 (C#风格命名)
+pub fn (self: *ArrayList<T>) RemoveAt(index: int) Option<T> {
+    return self.vec.remove(index);
+}
+
+/// 移除指定元素的第一个匹配项 (类似Java remove(Object) 和 C# Remove(T))
+pub fn (self: *ArrayList<T>) remove(item: T) bool {
+    let index = self.index_of(item);
+    if (index >= 0) {
+        self.vec.remove(index);
+        return true;
+    }
+    return false;
+}
+
+/// 移除指定元素的第一个匹配项 (C#风格命名)
+pub fn (self: *ArrayList<T>) Remove(item: T) bool {
+    return self.remove(item);
+}
+
+/// 移除指定范围的元素 (类似C# RemoveRange(int, int))
+pub fn (self: *ArrayList<T>) remove_range(start_index: int, count: int) void {
+    // 从后往前删除以避免索引变化
+    for (var i = 0; i < count; i = i + 1) {
+        self.vec.remove(start_index);
+    }
+}
+
+/// 清空ArrayList (类似Java clear() 和 C# Clear())
+pub fn (self: *ArrayList<T>) clear() void {
+    self.vec.clear();
+}
+
+/// 清空ArrayList (C#风格命名)
+pub fn (self: *ArrayList<T>) Clear() void {
+    self.vec.clear();
+}
+
+// ============================================================================
+// 访问元素
+// ============================================================================
+
+/// 获取指定位置的元素 (类似Java get(int) 和 C# indexer)
+pub fn (self: *ArrayList<T>) get(index: int) Option<T> {
+    return self.vec.get(index);
+}
+
+/// 获取指定位置的元素 (C#索引器风格)
+pub fn (self: *ArrayList<T>) get_item(index: int) Option<T> {
+    return self.vec.get(index);
+}
+
+/// 设置指定位置的元素 (类似Java set(int, E) 和 C# indexer)
+pub fn (self: *ArrayList<T>) set(index: int, item: T) Option<T> {
+    if (index < 0 || index >= self.len()) {
+        return Option.None;
+    }
+    let old = self.vec.get(index).unwrap();
+    self.vec.set(index, item);
+    return Option.Some(old);
+}
+
+/// 设置指定位置的元素 (C#索引器风格)
+pub fn (self: *ArrayList<T>) set_item(index: int, item: T) Option<T> {
+    return self.set(index, item);
+}
+
+/// 获取第一个元素
+pub fn (self: *ArrayList<T>) first() Option<T> {
+    return self.vec.first();
+}
+
+/// 获取最后一个元素
+pub fn (self: *ArrayList<T>) last() Option<T> {
+    return self.vec.last();
+}
+
+// ============================================================================
+// 查找元素
+// ============================================================================
+
+/// 查找元素的位置 (类似Java indexOf(Object) 和 C# IndexOf(T))
+pub fn (self: *ArrayList<T>) index_of(item: T) int {
+    let opt = self.vec.find(item);
+    return if (opt.is_some()) opt.unwrap() else -1;
+}
+
+/// 从指定位置开始查找元素的位置 (类似Java indexOf(Object, int))
+pub fn (self: *ArrayList<T>) index_of_from(item: T, start_index: int) int {
+    if (start_index < 0 || start_index >= self.len()) {
+        return -1;
+    }
+    
+    for (var i = start_index; i < self.len(); i = i + 1) {
+        match self.vec.get(i) {
+            case Option.Some(current):
+                if (current == item) {
+                    return i;
+                }
+            case Option.None:
+                // 继续
+        }
+    }
+    return -1;
+}
+
+/// 从后往前查找元素的位置 (类似Java lastIndexOf(Object) 和 C# LastIndexOf(T))
+pub fn (self: *ArrayList<T>) last_index_of(item: T) int {
+    let opt = self.vec.rfind(item);
+    return if (opt.is_some()) opt.unwrap() else -1;
+}
+
+/// 从指定位置开始从后往前查找元素的位置 (类似Java lastIndexOf(Object, int))
+pub fn (self: *ArrayList<T>) last_index_of_from(item: T, start_index: int) int {
+    if (start_index < 0 || start_index >= self.len()) {
+        return -1;
+    }
+    
+    for (var i = start_index; i >= 0; i = i - 1) {
+        match self.vec.get(i) {
+            case Option.Some(current):
+                if (current == item) {
+                    return i;
+                }
+            case Option.None:
+                // 继续
+        }
+    }
+    return -1;
+}
+
+/// 检查是否包含元素 (类似Java contains(Object) 和 C# Contains(T))
+pub fn (self: *ArrayList<T>) contains(item: T) bool {
+    return self.vec.contains(item);
+}
+
+// ============================================================================
+// 迭代和转换 (结合C# LINQ风格和Java Stream风格)
+// ============================================================================
+
+/// 对每个元素执行函数 (类似Java forEach(Consumer) 和 C# ForEach(Action))
+pub fn (self: *ArrayList<T>) for_each(f: fn(T) void) void {
+    self.vec.for_each(f);
+}
+
+/// 映射到新ArrayList (类似Java stream().map() 和 C# Select(Func))
+pub fn (self: *ArrayList<T>) map<U>(f: fn(T) U) ArrayList<U> {
+    let vec = self.vec.map(f);
+    return ArrayList<U> {
+        vec: vec
+    };
+}
+
+/// 过滤元素 (类似Java stream().filter() 和 C# Where(Func))
+pub fn (self: *ArrayList<T>) filter(f: fn(T) bool) ArrayList<T> {
+    let vec = self.vec.filter(f);
+    return ArrayList<T> {
+        vec: vec
+    };
+}
+
+/// 折叠（reduce）(类似Java stream().reduce() 和 C# Aggregate(Func))
+pub fn (self: *ArrayList<T>) fold<U>(init: U, f: fn(U, T) U) U {
+    return self.vec.fold(init, f);
+}
+
+/// 检查是否所有元素满足条件 (类似Java stream().allMatch() 和 C# All(Func))
+pub fn (self: *ArrayList<T>) all(f: fn(T) bool) bool {
+    return self.vec.all(f);
+}
+
+/// 检查是否有元素满足条件 (类似Java stream().anyMatch() 和 C# Any(Func))
+pub fn (self: *ArrayList<T>) any(f: fn(T) bool) bool {
+    return self.vec.any(f);
+}
+
+/// 检查是否没有元素满足条件 (类似Java stream().noneMatch() 和 C# All(Func)的反向)
+pub fn (self: *ArrayList<T>) none(f: fn(T) bool) bool {
+    return !self.vec.any(f);
+}
+
+// ============================================================================
+// 排序 (结合C#和Java的优点)
+// ============================================================================
+
+/// 反转ArrayList (类似Java Collections.reverse() 和 C# Reverse())
+pub fn (self: *ArrayList<T>) reverse() void {
+    self.vec.reverse();
+}
+
+/// 排序 (类似Java Collections.sort() 和 C# Sort())
+pub fn (self: *ArrayList<T>) sort() void {
+    self.vec.sort();
+}
+
+/// 使用比较函数排序 (类似Java Collections.sort(Comparator) 和 C# Sort(Comparison))
+pub fn (self: *ArrayList<T>) sort_by(cmp: fn(T, T) int) void {
+    self.vec.sort_by(cmp);
+}
+
+/// 使用比较器排序 (类似Java Collections.sort(Comparator) 和 C# Sort(IComparer))
+pub fn (self: *ArrayList<T>) sort_with(comparer: fn(T, T) int) void {
+    self.vec.sort_by(comparer);
+}
+
+// ============================================================================
+// 转换和复制
+// ============================================================================
+
+/// 获取子列表 (类似Java subList() 和 C# GetRange())
+pub fn (self: *ArrayList<T>) sub_list(start: int, end: int) ArrayList<T> {
+    let vec = self.vec.slice(start, end);
+    return ArrayList<T> {
+        vec: vec
+    };
+}
+
+/// 获取子列表 (C#风格命名)
+pub fn (self: *ArrayList<T>) get_range(start: int, count: int) ArrayList<T> {
+    let vec = self.vec.slice(start, start + count);
+    return ArrayList<T> {
+        vec: vec
+    };
+}
+
+/// 转换为数组 (类似Java toArray() 和 C# ToArray())
+pub fn (self: *ArrayList<T>) to_array() []T {
+    return self.vec.to_array();
+}
+
+/// 转换为Vec
+pub fn (self: *ArrayList<T>) to_vec() Vec<T> {
+    return self.vec.clone();
+}
+
+/// 克隆ArrayList (类似Java clone() 和 C# ICloneable)
+pub fn (self: *ArrayList<T>) clone() ArrayList<T> {
+    return ArrayList<T> {
+        vec: self.vec.clone()
+    };
+}
+
+/// 转换为只读列表 (类似C# AsReadOnly())
+pub fn (self: *ArrayList<T>) as_read_only() ArrayList<T> {
+    return self.clone();
+}
+
+// ============================================================================
+// 内存管理 (显式内存管理 - 类似Zig)
+// ============================================================================
+
+/// 确保容量足够 (类似Java ensureCapacity() 和 C# EnsureCapacity())
+pub fn (self: *ArrayList<T>) ensure_capacity(min_capacity: int) void {
+    self.vec.reserve(min_capacity - self.len());
+}
+
+/// 收缩容量到实际长度 (类似C# TrimExcess())
+pub fn (self: *ArrayList<T>) trim_to_size() void {
+    self.vec.shrink_to_fit();
+}
+
+/// 释放ArrayList的内存 (显式内存管理 - 类似Zig)
+pub fn (self: *ArrayList<T>) drop() void {
+    self.vec.drop();
+}
+
+// ============================================================================
+// C#风格的便利方法
+// ============================================================================
+
+/// 检查是否存在满足条件的元素 (类似C# Exists)
+pub fn (self: *ArrayList<T>) exists(predicate: fn(T) bool) bool {
+    return self.vec.any(predicate);
+}
+
+/// 查找第一个满足条件的元素 (类似C# Find)
+pub fn (self: *ArrayList<T>) find(predicate: fn(T) bool) Option<T> {
+    for (var i = 0; i < self.len(); i = i + 1) {
+        match self.vec.get(i) {
+            case Option.Some(item):
+                if (predicate(item)) {
+                    return Option.Some(item);
+                }
+            case Option.None:
+                // 继续
+        }
+    }
+    return Option.None;
+}
+
+/// 查找所有满足条件的元素 (类似C# FindAll)
+pub fn (self: *ArrayList<T>) find_all(predicate: fn(T) bool) ArrayList<T> {
+    return self.filter(predicate);
+}
+
+/// 获取满足条件的元素的索引 (类似C# FindIndex)
+pub fn (self: *ArrayList<T>) find_index(predicate: fn(T) bool) int {
+    for (var i = 0; i < self.len(); i = i + 1) {
+        match self.vec.get(i) {
+            case Option.Some(item):
+                if (predicate(item)) {
+                    return i;
+                }
+            case Option.None:
+                // 继续
+        }
+    }
+    return -1;
+}
+
+/// 转换元素类型 (类似C# ConvertAll)
+pub fn (self: *ArrayList<T>) convert_all<U>(converter: fn(T) U) ArrayList<U> {
+    return self.map(converter);
+}
+
+/// 检查是否所有元素都满足条件 (类似C# TrueForAll)
+pub fn (self: *ArrayList<T>) true_for_all(predicate: fn(T) bool) bool {
+    return self.vec.all(predicate);
+}

@@ -1,0 +1,77 @@
+// 标准库字符串操作示例
+
+fn main() int {
+    println("=== AZ标准库 - 字符串操作示例 ===");
+    println("");
+    
+    // 1. 基础操作
+    println("1. 基础字符串操作:");
+    let str1 = "Hello";
+    let str2 = "World";
+    let combined = az_string_concat(str1, " ");
+    combined = az_string_concat(combined, str2);
+    println("  连接: " + combined);
+    
+    let len = az_string_length(combined);
+    println("  长度: " + az_int_to_string(len));
+    
+    // 2. 大小写转换
+    println("");
+    println("2. 大小写转换:");
+    let upper = az_string_to_upper(combined);
+    println("  大写: " + upper);
+    
+    let lower = az_string_to_lower(combined);
+    println("  小写: " + lower);
+    
+    // 3. 查找和替换
+    println("");
+    println("3. 查找和替换:");
+    let text = "The quick brown fox jumps over the lazy dog";
+    println("  原文: " + text);
+    
+    let pos = az_string_find(text, "fox");
+    println("  'fox'的位置: " + az_int_to_string(pos));
+    
+    if (az_string_contains(text, "quick")) {
+        println("  包含'quick': 是");
+    }
+    
+    let replaced = az_string_replace(text, "fox", "cat");
+    println("  替换后: " + replaced);
+    
+    // 4. 去除空白
+    println("");
+    println("4. 去除空白:");
+    let padded = "   Hello, AZ!   ";
+    println("  原文: '" + padded + "'");
+    let trimmed = az_string_trim(padded);
+    println("  去空白: '" + trimmed + "'");
+    
+    // 5. 字符串重复和反转
+    println("");
+    println("5. 重复和反转:");
+    let star = "*";
+    let repeated = az_string_repeat(star, 20);
+    println("  重复: " + repeated);
+    
+    let word = "AZ Language";
+    let reversed = az_string_reverse(word);
+    println("  原文: " + word);
+    println("  反转: " + reversed);
+    
+    // 6. 开头和结尾匹配
+    println("");
+    println("6. 开头和结尾匹配:");
+    let filename = "document.txt";
+    if (az_string_starts_with(filename, "doc")) {
+        println("  文件名以'doc'开头");
+    }
+    if (az_string_ends_with(filename, ".txt")) {
+        println("  文件名以'.txt'结尾");
+    }
+    
+    println("");
+    println("=== 示例完成 ===");
+    return 0;
+}

@@ -1,0 +1,1079 @@
+// std.actor.persistence.advanced - Actor高级持久化模块
+// 提供更完善的Actor状态持久化和恢复支持
+module std.actor.persistence.advanced;
+
+import std.actor.{Actor, ActorId, Result, Error, ActorError, new_actor_id, actor_id_to_string};
+import std.actor.persistence.{PersistenceProvider, PersistentActor};
+import std.fs;
+import std.string;
+import std.mem;
+import std.collections.{HashMap, Vec, Queue};
+import std.time;
+import std.json; // 假设未来会实现JSON模块
+
+// ============================================================================
+// 高级持久化相关类型定义
+// ============================================================================
+
+// 持久化策略
+enum PersistenceStrategy {
+    Manual,          // 手动持久化
+    Auto,            // 自动持久化
+    Periodic,        // 周期性持久化
+    EventSourced,    // 事件溯源
+    Snapshot,        // 快照
+}
+
+// 持久化级别
+enum PersistenceLevel {
+    None,            // 不持久化
+    Critical,        // 关键数据持久化
+    Full,            // 完全持久化
+}
+
+// 持久化格式
+enum PersistenceFormat {
+    Json,            // JSON格式
+    Binary,          // 二进制格式
+    Custom,          // 自定义格式
+}
+
+// 持久化配置
+struct AdvancedPersistenceConfig {
+    provider_type: string,           // "file", "memory", "database"
+    base_path: string,               // 基础路径
+    strategy: PersistenceStrategy,   // 持久化策略
+    level: PersistenceLevel,         // 持久化级别
+    format: PersistenceFormat,       // 持久化格式
+    auto_save_interval_ms: int,      // 自动保存间隔（毫秒）
+    snapshot_interval: int,          // 快照间隔（消息数）
+    compression_enabled: bool,       // 是否启用压缩
+    encryption_enabled: bool,        // 是否启用加密
+    backup_enabled: bool,            // 是否启用备份
+    backup_path: string,             // 备份路径
+    max_backup_count: int,           // 最大备份数量
+}
+
+// 持久化状态信息
+struct PersistenceState {
+    actor_id: ActorId,
+    version: int,                    // 状态版本
+    last_saved: time.Time,           // 最后保存时间
+    last_loaded: time.Time,          // 最后加载时间
+    save_count: int,                 // 保存次数
+    load_count: int,                 // 加载次数
+    error_count: int,                // 错误次数
+    size: int,                       // 状态大小（字节）
+    checksum: string,                // 校验和
+}
+
+// 事件溯源相关类型
+struct Event {
+    id: string,                      // 事件ID
+    actor_id: ActorId,               // Actor ID
+    timestamp: time.Time,            // 时间戳
+    event_type: string,              // 事件类型
+    data: string,                    // 事件数据
+    version: int,                    // 事件版本
+}
+
+// 快照
+struct Snapshot {
+    actor_id: ActorId,               // Actor ID
+    timestamp: time.Time,            // 时间戳
+    version: int,                    // 快照版本
+    state: string,                   // 状态数据
+    size: int,                       // 快照大小
+}
+
+// 持久化统计信息
+struct PersistenceStats {
+    total_saves: int,                // 总保存次数
+    total_loads: int,                // 总加载次数
+    total_deletes: int,              // 总删除次数
+    total_snapshots: int,            // 总快照次数
+    total_events: int,               // 总事件数
+    failed_operations: int,          // 失败操作数
+    total_data_size: int,            // 总数据大小（字节）
+    average_save_time_ms: int,       // 平均保存时间（毫秒）
+    average_load_time_ms: int,       // 平均加载时间（毫秒）
+}
+
+// ============================================================================
+// 高级持久化提供者接口
+// ============================================================================
+
+interface AdvancedPersistenceProvider: PersistenceProvider {
+    // 保存快照
+    fn save_snapshot(self: *Self, snapshot: Snapshot) Result<void, Error>;
+    
+    // 加载最新快照
+    fn load_latest_snapshot(self: *Self, actor_id: ActorId) Result<Option<Snapshot>, Error>;
+    
+    // 保存事件
+    fn save_event(self: *Self, event: Event) Result<void, Error>;
+    
+    // 加载事件序列
+    fn load_events(self: *Self, actor_id: ActorId, from_version: int) Result<Vec<Event>, Error>;
+    
+    // 删除事件
+    fn delete_events(self: *Self, actor_id: ActorId, to_version: int) Result<void, Error>;
+    
+    // 获取持久化状态信息
+    fn get_persistence_state(self: *Self, actor_id: ActorId) Result<Option<PersistenceState>, Error>;
+    
+    // 获取统计信息
+    fn get_stats(self: *Self) PersistenceStats;
+}
+
+// ============================================================================
+// 高级文件系统持久化提供者
+// ============================================================================
+
+struct AdvancedFilePersistenceProvider {
+    base_path: string,
+    snapshot_path: string,
+    event_path: string,
+    state_path: string,
+    config: AdvancedPersistenceConfig,
+    stats: PersistenceStats,
+}
+
+// ============================================================================
+// 数据库持久化提供者（占位）
+// ============================================================================
+
+struct DatabasePersistenceProvider {
+    connection_string: string,
+    config: AdvancedPersistenceConfig,
+    stats: PersistenceStats,
+}
+
+// ============================================================================
+// 高级持久化管理器
+// ============================================================================
+
+struct AdvancedPersistenceManager {
+    provider: *AdvancedPersistenceProvider,
+    config: AdvancedPersistenceConfig,
+    persistence_states: HashMap<ActorId, PersistenceState>,
+    dirty_actors: Vec<ActorId>,
+    event_log: HashMap<ActorId, Vec<Event>>, // 事件日志缓存
+    snapshot_cache: HashMap<ActorId, Snapshot>, // 快照缓存
+    stats: PersistenceStats,
+}
+
+// ============================================================================
+// 高级文件系统持久化提供者实现
+// ============================================================================
+
+// 创建高级文件系统持久化提供者
+fn new_advanced_file_provider(base_path: string, config: AdvancedPersistenceConfig) AdvancedFilePersistenceProvider {
+    let snapshot_path = string.concat(base_path, "/snapshots");
+    let event_path = string.concat(base_path, "/events");
+    let state_path = string.concat(base_path, "/states");
+    
+    // 确保目录存在
+    fs.create_dir_all(base_path);
+    fs.create_dir_all(snapshot_path);
+    fs.create_dir_all(event_path);
+    fs.create_dir_all(state_path);
+    
+    return AdvancedFilePersistenceProvider {
+        base_path: base_path,
+        snapshot_path: snapshot_path,
+        event_path: event_path,
+        state_path: state_path,
+        config: config,
+        stats: PersistenceStats {
+            total_saves: 0,
+            total_loads: 0,
+            total_deletes: 0,
+            total_snapshots: 0,
+            total_events: 0,
+            failed_operations: 0,
+            total_data_size: 0,
+            average_save_time_ms: 0,
+            average_load_time_ms: 0,
+        },
+    };
+}
+
+// 生成状态文件路径
+fn (self: *AdvancedFilePersistenceProvider) get_state_file_path(actor_id: ActorId) string {
+    return string.concat(
+        string.concat(self.state_path, "/"),
+        string.concat(actor_id.id, ".state")
+    );
+}
+
+// 生成快照文件路径
+fn (self: *AdvancedFilePersistenceProvider) get_snapshot_file_path(actor_id: ActorId, version: int) string {
+    return string.concat(
+        string.concat(self.snapshot_path, "/"),
+        string.concat(string.concat(actor_id.id, "_v"), string.concat(string.from_int(version), ".snapshot"))
+    );
+}
+
+// 生成事件文件路径
+fn (self: *AdvancedFilePersistenceProvider) get_event_file_path(actor_id: ActorId) string {
+    return string.concat(
+        string.concat(self.event_path, "/"),
+        string.concat(actor_id.id, ".events")
+    );
+}
+
+// 保存Actor状态
+fn (self: *AdvancedFilePersistenceProvider) save_state(actor_id: ActorId, state: *any) Result<void, Error> {
+    let start_time = time.now();
+    
+    let file_path = self.get_state_file_path(actor_id);
+    
+    // 序列化状态
+    let serialize_result = self.serialize_state(state);
+    if (serialize_result.is_err()) {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+        return Result.Err(serialize_result.unwrap_err());
+    }
+    
+    let state_str = serialize_result.unwrap();
+    let state_size = string.length(state_str);
+    
+    // 如果启用压缩，进行压缩
+    let final_state_str = if (self.config.compression_enabled) {
+        self.compress_data(state_str)
+    } else {
+        state_str
+    };
+    
+    // 如果启用加密，进行加密
+    let encrypted_state_str = if (self.config.encryption_enabled) {
+        self.encrypt_data(final_state_str)
+    } else {
+        final_state_str
+    };
+    
+    // 保存到文件
+    let write_result = fs.write_string(file_path, encrypted_state_str);
+    if (write_result.is_err()) {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+        return Result.Err(Error.new("保存状态失败: " + write_result.unwrap_err().message));
+    }
+    
+    // 更新统计信息
+    self.stats.total_saves = self.stats.total_saves + 1;
+    self.stats.total_data_size = self.stats.total_data_size + state_size;
+    
+    let end_time = time.now();
+    let duration = time.time_sub(end_time, start_time);
+    let duration_ms = duration.seconds * 1000 + duration.nanos / 1000000;
+    
+    // 更新平均保存时间
+    if (self.stats.total_saves > 0) {
+        self.stats.average_save_time_ms = (self.stats.average_save_time_ms * (self.stats.total_saves - 1) + duration_ms) / self.stats.total_saves;
+    } else {
+        self.stats.average_save_time_ms = duration_ms;
+    }
+    
+    return Result.Ok(void);
+}
+
+// 加载Actor状态
+fn (self: *AdvancedFilePersistenceProvider) load_state(actor_id: ActorId, state: *any) Result<bool, Error> {
+    let start_time = time.now();
+    
+    let file_path = self.get_state_file_path(actor_id);
+    
+    // 检查文件是否存在
+    if (!fs.is_file(file_path)) {
+        return Result.Ok(false); // 状态不存在
+    }
+    
+    // 读取文件
+    let read_result = fs.read_to_string(file_path);
+    if (read_result.is_err()) {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+        return Result.Err(Error.new("读取状态失败: " + read_result.unwrap_err().message));
+    }
+    
+    let mut state_str = read_result.unwrap();
+    
+    // 如果启用加密，进行解密
+    if (self.config.encryption_enabled) {
+        let decrypt_result = self.decrypt_data(state_str);
+        if (decrypt_result.is_err()) {
+            self.stats.failed_operations = self.stats.failed_operations + 1;
+            return Result.Err(decrypt_result.unwrap_err());
+        }
+        state_str = decrypt_result.unwrap();
+    }
+    
+    // 如果启用压缩，进行解压缩
+    if (self.config.compression_enabled) {
+        let decompress_result = self.decompress_data(state_str);
+        if (decompress_result.is_err()) {
+            self.stats.failed_operations = self.stats.failed_operations + 1;
+            return Result.Err(decompress_result.unwrap_err());
+        }
+        state_str = decompress_result.unwrap();
+    }
+    
+    // 反序列化状态
+    let deserialize_result = self.deserialize_state(state_str, state);
+    if (deserialize_result.is_err()) {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+        return Result.Err(deserialize_result.unwrap_err());
+    }
+    
+    // 更新统计信息
+    self.stats.total_loads = self.stats.total_loads + 1;
+    self.stats.total_data_size = self.stats.total_data_size + string.length(state_str);
+    
+    let end_time = time.now();
+    let duration = time.time_sub(end_time, start_time);
+    let duration_ms = duration.seconds * 1000 + duration.nanos / 1000000;
+    
+    // 更新平均加载时间
+    if (self.stats.total_loads > 0) {
+        self.stats.average_load_time_ms = (self.stats.average_load_time_ms * (self.stats.total_loads - 1) + duration_ms) / self.stats.total_loads;
+    } else {
+        self.stats.average_load_time_ms = duration_ms;
+    }
+    
+    return Result.Ok(true);
+}
+
+// 删除Actor状态
+fn (self: *AdvancedFilePersistenceProvider) delete_state(actor_id: ActorId) Result<void, Error> {
+    let file_path = self.get_state_file_path(actor_id);
+    
+    if (fs.is_file(file_path)) {
+        let remove_result = fs.remove_file(file_path);
+        if (remove_result.is_err()) {
+            self.stats.failed_operations = self.stats.failed_operations + 1;
+            return Result.Err(Error.new("删除状态失败: " + remove_result.unwrap_err().message));
+        }
+    }
+    
+    self.stats.total_deletes = self.stats.total_deletes + 1;
+    
+    return Result.Ok(void);
+}
+
+// 检查Actor状态是否存在
+fn (self: *AdvancedFilePersistenceProvider) state_exists(actor_id: ActorId) Result<bool, Error> {
+    let file_path = self.get_state_file_path(actor_id);
+    return Result.Ok(fs.is_file(file_path));
+}
+
+// 保存快照
+fn (self: *AdvancedFilePersistenceProvider) save_snapshot(snapshot: Snapshot) Result<void, Error> {
+    let file_path = self.get_snapshot_file_path(snapshot.actor_id, snapshot.version);
+    
+    // 序列化快照
+    let serialize_result = self.serialize_snapshot(snapshot);
+    if (serialize_result.is_err()) {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+        return Result.Err(serialize_result.unwrap_err());
+    }
+    
+    let snapshot_str = serialize_result.unwrap();
+    
+    // 保存到文件
+    let write_result = fs.write_string(file_path, snapshot_str);
+    if (write_result.is_err()) {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+        return Result.Err(Error.new("保存快照失败: " + write_result.unwrap_err().message));
+    }
+    
+    self.stats.total_snapshots = self.stats.total_snapshots + 1;
+    
+    return Result.Ok(void);
+}
+
+// 加载最新快照
+fn (self: *AdvancedFilePersistenceProvider) load_latest_snapshot(actor_id: ActorId) Result<Option<Snapshot>, Error> {
+    // TODO: 实现加载最新快照的逻辑
+    // 需要扫描快照目录，找到最新的快照文件
+    
+    return Result.Ok(Option.None);
+}
+
+// 保存事件
+fn (self: *AdvancedFilePersistenceProvider) save_event(event: Event) Result<void, Error> {
+    let file_path = self.get_event_file_path(event.actor_id);
+    
+    // 序列化事件
+    let serialize_result = self.serialize_event(event);
+    if (serialize_result.is_err()) {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+        return Result.Err(serialize_result.unwrap_err());
+    }
+    
+    let event_str = serialize_result.unwrap();
+    
+    // 追加到事件文件
+    let append_result = fs.append_string(file_path, event_str + "\n");
+    if (append_result.is_err()) {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+        return Result.Err(Error.new("保存事件失败: " + append_result.unwrap_err().message));
+    }
+    
+    self.stats.total_events = self.stats.total_events + 1;
+    
+    return Result.Ok(void);
+}
+
+// 加载事件序列
+fn (self: *AdvancedFilePersistenceProvider) load_events(actor_id: ActorId, from_version: int) Result<Vec<Event>, Error> {
+    let file_path = self.get_event_file_path(actor_id);
+    
+    // 检查文件是否存在
+    if (!fs.is_file(file_path)) {
+        return Result.Ok(Vec.new()); // 没有事件
+    }
+    
+    // 读取事件文件
+    let read_result = fs.read_to_string(file_path);
+    if (read_result.is_err()) {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+        return Result.Err(Error.new("读取事件失败: " + read_result.unwrap_err().message));
+    }
+    
+    let content = read_result.unwrap();
+    
+    // 解析事件
+    let events = self.parse_events(content, from_version);
+    
+    return Result.Ok(events);
+}
+
+// 删除事件
+fn (self: *AdvancedFilePersistenceProvider) delete_events(actor_id: ActorId, to_version: int) Result<void, Error> {
+    // TODO: 实现删除事件的逻辑
+    // 可能需要重写事件文件，只保留指定版本之后的事件
+    
+    self.stats.total_deletes = self.stats.total_deletes + 1;
+    
+    return Result.Ok(void);
+}
+
+// 获取持久化状态信息
+fn (self: *AdvancedFilePersistenceProvider) get_persistence_state(actor_id: ActorId) Result<Option<PersistenceState>, Error> {
+    // TODO: 实现获取持久化状态信息的逻辑
+    // 可以从元数据文件中读取状态信息
+    
+    return Result.Ok(Option.None);
+}
+
+// 获取统计信息
+fn (self: *AdvancedFilePersistenceProvider) get_stats() PersistenceStats {
+    return self.stats;
+}
+
+// 序列化状态（简化实现）
+fn (self: *AdvancedFilePersistenceProvider) serialize_state(state: *any) Result<string, Error> {
+    // TODO: 实现真正的序列化逻辑
+    // 这里只是一个占位实现
+    
+    match self.config.format {
+        PersistenceFormat.Json => {
+            return Result.Ok("{\"state\": \"serialized\"}");
+        },
+        PersistenceFormat.Binary => {
+            return Result.Ok("binary_serialized_data");
+        },
+        PersistenceFormat.Custom => {
+            return Result.Ok("custom_serialized_data");
+        }
+    }
+}
+
+// 反序列化状态（简化实现）
+fn (self: *AdvancedFilePersistenceProvider) deserialize_state(data: string, state: *any) Result<void, Error> {
+    // TODO: 实现真正的反序列化逻辑
+    // 这里只是一个占位实现
+    
+    return Result.Ok(void);
+}
+
+// 序列化快照（简化实现）
+fn (self: *AdvancedFilePersistenceProvider) serialize_snapshot(snapshot: Snapshot) Result<string, Error> {
+    // TODO: 实现真正的快照序列化逻辑
+    
+    return Result.Ok("{\"snapshot\": \"serialized\"}");
+}
+
+// 序列化事件（简化实现）
+fn (self: *AdvancedFilePersistenceProvider) serialize_event(event: Event) Result<string, Error> {
+    // TODO: 实现真正的事件序列化逻辑
+    
+    return Result.Ok("{\"event\": \"serialized\"}");
+}
+
+// 解析事件（简化实现）
+fn (self: *AdvancedFilePersistenceProvider) parse_events(content: string, from_version: int) Vec<Event> {
+    // TODO: 实现真正的事件解析逻辑
+    
+    return Vec.new();
+}
+
+// 压缩数据（简化实现）
+fn (self: *AdvancedFilePersistenceProvider) compress_data(data: string) string {
+    // TODO: 实现真正的数据压缩逻辑
+    
+    return data;
+}
+
+// 解压缩数据（简化实现）
+fn (self: *AdvancedFilePersistenceProvider) decompress_data(data: string) Result<string, Error> {
+    // TODO: 实现真正的数据解压缩逻辑
+    
+    return Result.Ok(data);
+}
+
+// 加密数据（简化实现）
+fn (self: *AdvancedFilePersistenceProvider) encrypt_data(data: string) string {
+    // TODO: 实现真正的数据加密逻辑
+    
+    return data;
+}
+
+// 解密数据（简化实现）
+fn (self: *AdvancedFilePersistenceProvider) decrypt_data(data: string) Result<string, Error> {
+    // TODO: 实现真正的数据解密逻辑
+    
+    return Result.Ok(data);
+}
+
+// ============================================================================
+// 高级持久化管理器实现
+// ============================================================================
+
+// 创建默认高级持久化配置
+fn default_advanced_persistence_config() AdvancedPersistenceConfig {
+    return AdvancedPersistenceConfig {
+        provider_type: "file",
+        base_path: "./actor_states_advanced",
+        strategy: PersistenceStrategy.Auto,
+        level: PersistenceLevel.Full,
+        format: PersistenceFormat.Json,
+        auto_save_interval_ms: 5000,    // 5秒自动保存
+        snapshot_interval: 100,          // 每100个事件一个快照
+        compression_enabled: false,
+        encryption_enabled: false,
+        backup_enabled: false,
+        backup_path: "./actor_backups",
+        max_backup_count: 5,
+    };
+}
+
+// 创建高级持久化管理器
+fn new_advanced_persistence_manager(config: AdvancedPersistenceConfig) Result<AdvancedPersistenceManager, Error> {
+    let provider: *AdvancedPersistenceProvider;
+    
+    match config.provider_type {
+        "file" => {
+            let file_provider = new_advanced_file_provider(config.base_path, config);
+            provider = file_provider as *AdvancedPersistenceProvider;
+        },
+        "memory" => {
+            // TODO: 实现内存提供者
+            return Result.Err(Error.new("内存提供者暂未实现"));
+        },
+        "database" => {
+            // TODO: 实现数据库提供者
+            return Result.Err(Error.new("数据库提供者暂未实现"));
+        },
+        _ => {
+            return Result.Err(Error.new("不支持的持久化提供者类型"));
+        }
+    }
+    
+    return Result.Ok(AdvancedPersistenceManager {
+        provider: provider,
+        config: config,
+        persistence_states: HashMap.new(),
+        dirty_actors: Vec.new(),
+        event_log: HashMap.new(),
+        snapshot_cache: HashMap.new(),
+        stats: PersistenceStats {
+            total_saves: 0,
+            total_loads: 0,
+            total_deletes: 0,
+            total_snapshots: 0,
+            total_events: 0,
+            failed_operations: 0,
+            total_data_size: 0,
+            average_save_time_ms: 0,
+            average_load_time_ms: 0,
+        },
+    });
+}
+
+// 标记Actor为脏数据（需要保存）
+fn (self: *AdvancedPersistenceManager) mark_dirty(actor_id: ActorId) void {
+    if (!self.dirty_actors.contains(actor_id)) {
+        self.dirty_actors.push(actor_id);
+    }
+}
+
+// 保存脏数据
+fn (self: *AdvancedPersistenceManager) save_dirty() Result<void, Error> {
+    for (self.dirty_actors) |actor_id| {
+        // 注意：这里需要Actor实例来获取状态，实际实现中需要更复杂的机制
+        // 暂时跳过具体实现
+    }
+    
+    self.dirty_actors.clear();
+    return Result.Ok(void);
+}
+
+// 保存特定Actor的状态
+fn (self: *AdvancedPersistenceManager) save_actor_state<T: PersistentActor>(actor: *T) Result<void, Error> {
+    let state = actor.get_persistent_state();
+    let actor_id = actor.get_id();
+    
+    let result = self.provider.save_state(actor_id, state);
+    if (result.is_ok()) {
+        // 从脏数据列表中移除
+        self.dirty_actors.remove(actor_id);
+        
+        // 更新持久化状态信息
+        self.update_persistence_state(actor_id, true);
+        
+        // 更新统计信息
+        self.stats.total_saves = self.stats.total_saves + 1;
+    } else {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+    }
+    
+    return result;
+}
+
+// 加载Actor状态
+fn (self: *AdvancedPersistenceManager) load_actor_state<T: PersistentActor>(actor: *T) Result<bool, Error> {
+    let state = actor.get_persistent_state();
+    let actor_id = actor.get_id();
+    
+    let result = self.provider.load_state(actor_id, state);
+    if (result.is_err()) {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+        return result;
+    }
+    
+    let exists = result.unwrap();
+    if (exists) {
+        // 恢复状态
+        let restore_result = actor.restore_from_state(state);
+        if (restore_result.is_err()) {
+            self.stats.failed_operations = self.stats.failed_operations + 1;
+            return Result.Err(restore_result.unwrap_err());
+        }
+        
+        // 更新持久化状态信息
+        self.update_persistence_state(actor_id, false);
+        
+        // 更新统计信息
+        self.stats.total_loads = self.stats.total_loads + 1;
+    }
+    
+    return Result.Ok(exists);
+}
+
+// 删除Actor状态
+fn (self: *AdvancedPersistenceManager) delete_actor_state(actor_id: ActorId) Result<void, Error> {
+    let result = self.provider.delete_state(actor_id);
+    if (result.is_ok()) {
+        // 从脏数据列表中移除
+        self.dirty_actors.remove(actor_id);
+        
+        // 从持久化状态信息中移除
+        self.persistence_states.remove(actor_id);
+        
+        // 更新统计信息
+        self.stats.total_deletes = self.stats.total_deletes + 1;
+    } else {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+    }
+    
+    return result;
+}
+
+// 检查Actor状态是否存在
+fn (self: *AdvancedPersistenceManager) state_exists(actor_id: ActorId) Result<bool, Error> {
+    return self.provider.state_exists(actor_id);
+}
+
+// 保存快照
+fn (self: *AdvancedPersistenceManager) save_snapshot(actor_id: ActorId, state: *any) Result<void, Error> {
+    let persistence_state = self.persistence_states.get(actor_id);
+    let version = if (persistence_state.is_some()) {
+        persistence_state.unwrap().version + 1
+    } else {
+        1
+    };
+    
+    let snapshot = Snapshot {
+        actor_id: actor_id,
+        timestamp: time.now(),
+        version: version,
+        state: self.serialize_state_data(state),
+        size: 0, // TODO: 计算实际大小
+    };
+    
+    let result = self.provider.save_snapshot(snapshot);
+    if (result.is_ok()) {
+        // 缓存快照
+        self.snapshot_cache.insert(actor_id, snapshot);
+        
+        // 更新统计信息
+        self.stats.total_snapshots = self.stats.total_snapshots + 1;
+    } else {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+    }
+    
+    return result;
+}
+
+// 加载最新快照
+fn (self: *AdvancedPersistenceManager) load_latest_snapshot(actor_id: ActorId) Result<Option<Snapshot>, Error> {
+    // 首先检查缓存
+    let cached_snapshot = self.snapshot_cache.get(actor_id);
+    if (cached_snapshot.is_some()) {
+        return Result.Ok(Option.Some(cached_snapshot.unwrap()));
+    }
+    
+    // 从提供者加载
+    let result = self.provider.load_latest_snapshot(actor_id);
+    if (result.is_ok()) {
+        let snapshot_option = result.unwrap();
+        if (snapshot_option.is_some()) {
+            // 缓存快照
+            self.snapshot_cache.insert(actor_id, snapshot_option.unwrap());
+        }
+    } else {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+    }
+    
+    return result;
+}
+
+// 保存事件
+fn (self: *AdvancedPersistenceManager) save_event(event: Event) Result<void, Error> {
+    let result = self.provider.save_event(event);
+    if (result.is_ok()) {
+        // 缓存事件
+        let actor_events = self.event_log.get_mut(event.actor_id);
+        if (actor_events.is_none()) {
+            self.event_log.insert(event.actor_id, Vec.new());
+            actor_events = self.event_log.get_mut(event.actor_id);
+        }
+        
+        actor_events.unwrap().push(event);
+        
+        // 更新统计信息
+        self.stats.total_events = self.stats.total_events + 1;
+    } else {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+    }
+    
+    return result;
+}
+
+// 加载事件序列
+fn (self: *AdvancedPersistenceManager) load_events(actor_id: ActorId, from_version: int) Result<Vec<Event>, Error> {
+    // 首先检查缓存
+    let cached_events = self.event_log.get(actor_id);
+    if (cached_events.is_some() && cached_events.unwrap().len() > 0) {
+        // TODO: 实现从缓存中过滤事件的逻辑
+        return Result.Ok(cached_events.unwrap().clone());
+    }
+    
+    // 从提供者加载
+    let result = self.provider.load_events(actor_id, from_version);
+    if (result.is_ok()) {
+        let events = result.unwrap();
+        
+        // 缓存事件
+        self.event_log.insert(actor_id, events.clone());
+    } else {
+        self.stats.failed_operations = self.stats.failed_operations + 1;
+    }
+    
+    return result;
+}
+
+// 更新持久化状态信息
+fn (self: *AdvancedPersistenceManager) update_persistence_state(actor_id: ActorId, is_save: bool) void {
+    let persistence_state = self.persistence_states.get_mut(actor_id);
+    
+    if (persistence_state.is_some()) {
+        let mut state = persistence_state.unwrap();
+        state.version = state.version + 1;
+        if (is_save) {
+            state.last_saved = time.now();
+            state.save_count = state.save_count + 1;
+        } else {
+            state.last_loaded = time.now();
+            state.load_count = state.load_count + 1;
+        }
+    } else {
+        let new_state = PersistenceState {
+            actor_id: actor_id,
+            version: 1,
+            last_saved: if (is_save) { time.now() } else { time.Time { seconds: 0, nanos: 0 } },
+            last_loaded: if (!is_save) { time.now() } else { time.Time { seconds: 0, nanos: 0 } },
+            save_count: if (is_save) { 1 } else { 0 },
+            load_count: if (!is_save) { 1 } else { 0 },
+            error_count: 0,
+            size: 0, // TODO: 计算实际大小
+            checksum: "", // TODO: 计算校验和
+        };
+        
+        self.persistence_states.insert(actor_id, new_state);
+    }
+}
+
+// 序列化状态数据（简化实现）
+fn (self: *AdvancedPersistenceManager) serialize_state_data(state: *any) string {
+    // TODO: 实现真正的状态数据序列化
+    
+    return "serialized_state_data";
+}
+
+// 获取持久化统计信息
+fn (self: *AdvancedPersistenceManager) get_stats() PersistenceStats {
+    // 合并提供者的统计信息
+    let provider_stats = self.provider.get_stats();
+    
+    return PersistenceStats {
+        total_saves: self.stats.total_saves + provider_stats.total_saves,
+        total_loads: self.stats.total_loads + provider_stats.total_loads,
+        total_deletes: self.stats.total_deletes + provider_stats.total_deletes,
+        total_snapshots: self.stats.total_snapshots + provider_stats.total_snapshots,
+        total_events: self.stats.total_events + provider_stats.total_events,
+        failed_operations: self.stats.failed_operations + provider_stats.failed_operations,
+        total_data_size: self.stats.total_data_size + provider_stats.total_data_size,
+        average_save_time_ms: provider_stats.average_save_time_ms,
+        average_load_time_ms: provider_stats.average_load_time_ms,
+    };
+}
+
+// ============================================================================
+// 高级持久化Actor混入
+// ============================================================================
+
+// 高级持久化Actor混入，提供增强的持久化功能
+struct AdvancedPersistentActorMixin<T: PersistentActor> {
+    actor: T,
+    persistence_manager: *AdvancedPersistenceManager,
+    auto_save_enabled: bool,
+    event_sourcing_enabled: bool,
+    snapshot_enabled: bool,
+    event_count: int,
+}
+
+// 创建高级持久化Actor混入
+fn new_advanced_persistent_actor_mixin<T: PersistentActor>(
+    actor: T, 
+    persistence_manager: *AdvancedPersistenceManager
+) AdvancedPersistentActorMixin<T> {
+    return AdvancedPersistentActorMixin<T> {
+        actor: actor,
+        persistence_manager: persistence_manager,
+        auto_save_enabled: true,
+        event_sourcing_enabled: false,
+        snapshot_enabled: false,
+        event_count: 0,
+    };
+}
+
+// 启用自动保存
+fn (self: *AdvancedPersistentActorMixin<T>) enable_auto_save() void {
+    self.auto_save_enabled = true;
+}
+
+// 禁用自动保存
+fn (self: *AdvancedPersistentActorMixin<T>) disable_auto_save() void {
+    self.auto_save_enabled = false;
+}
+
+// 启用事件溯源
+fn (self: *AdvancedPersistentActorMixin<T>) enable_event_sourcing() void {
+    self.event_sourcing_enabled = true;
+}
+
+// 禁用事件溯源
+fn (self: *AdvancedPersistentActorMixin<T>) disable_event_sourcing() void {
+    self.event_sourcing_enabled = false;
+}
+
+// 启用快照
+fn (self: *AdvancedPersistentActorMixin<T>) enable_snapshot() void {
+    self.snapshot_enabled = true;
+}
+
+// 禁用快照
+fn (self: *AdvancedPersistentActorMixin<T>) disable_snapshot() void {
+    self.snapshot_enabled = false;
+}
+
+// 手动保存状态
+fn (self: *AdvancedPersistentActorMixin<T>) save_state() Result<void, Error> {
+    return self.persistence_manager.save_actor_state(&self.actor);
+}
+
+// 加载状态
+fn (self: *AdvancedPersistentActorMixin<T>) load_state() Result<bool, Error> {
+    return self.persistence_manager.load_actor_state(&self.actor);
+}
+
+// 标记为脏数据
+fn (self: *AdvancedPersistentActorMixin<T>) mark_dirty() void {
+    if (self.auto_save_enabled) {
+        let actor_id = self.actor.get_id();
+        self.persistence_manager.mark_dirty(actor_id);
+    }
+}
+
+// 保存事件
+fn (self: *AdvancedPersistentActorMixin<T>) save_event(event_type: string, event_data: string) Result<void, Error> {
+    if (!self.event_sourcing_enabled) {
+        return Result.Err(Error.new("事件溯源未启用"));
+    }
+    
+    self.event_count = self.event_count + 1;
+    
+    let actor_id = self.actor.get_id();
+    let event = Event {
+        id: string.concat(string.concat(actor_id.id, "_"), string.from_int(self.event_count)),
+        actor_id: actor_id,
+        timestamp: time.now(),
+        event_type: event_type,
+        data: event_data,
+        version: self.event_count,
+    };
+    
+    let result = self.persistence_manager.save_event(event);
+    
+    // 检查是否需要创建快照
+    if (self.snapshot_enabled && self.event_count % self.persistence_manager.config.snapshot_interval == 0) {
+        let state = self.actor.get_persistent_state();
+        let snapshot_result = self.persistence_manager.save_snapshot(actor_id, state);
+        if (snapshot_result.is_err()) {
+            // 记录错误但继续
+        }
+    }
+    
+    return result;
+}
+
+// 恢复从事件
+fn (self: *AdvancedPersistentActorMixin<T>) replay_events(from_version: int) Result<void, Error> {
+    if (!self.event_sourcing_enabled) {
+        return Result.Err(Error.new("事件溯源未启用"));
+    }
+    
+    let actor_id = self.actor.get_id();
+    let events_result = self.persistence_manager.load_events(actor_id, from_version);
+    if (events_result.is_err()) {
+        return events_result;
+    }
+    
+    let events = events_result.unwrap();
+    
+    // 按版本顺序应用事件
+    // TODO: 实现事件应用逻辑
+    // 这需要Actor实现特定的事件处理方法
+    
+    return Result.Ok(void);
+}
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+// 创建测试用的内存持久化配置
+fn memory_advanced_persistence_config() AdvancedPersistenceConfig {
+    return AdvancedPersistenceConfig {
+        provider_type: "memory",
+        base_path: "",
+        strategy: PersistenceStrategy.Auto,
+        level: PersistenceLevel.Full,
+        format: PersistenceFormat.Json,
+        auto_save_interval_ms: 1000,    // 1秒自动保存
+        snapshot_interval: 10,           // 每10个事件一个快照
+        compression_enabled: false,
+        encryption_enabled: false,
+        backup_enabled: false,
+        backup_path: "",
+        max_backup_count: 3,
+    };
+}
+
+// 持久化策略转字符串
+fn persistence_strategy_to_string(strategy: PersistenceStrategy) string {
+    match strategy {
+        PersistenceStrategy.Manual => {
+            return "Manual";
+        },
+        PersistenceStrategy.Auto => {
+            return "Auto";
+        },
+        PersistenceStrategy.Periodic => {
+            return "Periodic";
+        },
+        PersistenceStrategy.EventSourced => {
+            return "EventSourced";
+        },
+        PersistenceStrategy.Snapshot => {
+            return "Snapshot";
+        }
+    }
+}
+
+// 持久化级别转字符串
+fn persistence_level_to_string(level: PersistenceLevel) string {
+    match level {
+        PersistenceLevel.None => {
+            return "None";
+        },
+        PersistenceLevel.Critical => {
+            return "Critical";
+        },
+        PersistenceLevel.Full => {
+            return "Full";
+        }
+    }
+}
+
+// 持久化格式转字符串
+fn persistence_format_to_string(format: PersistenceFormat) string {
+    match format {
+        PersistenceFormat.Json => {
+            return "Json";
+        },
+        PersistenceFormat.Binary => {
+            return "Binary";
+        },
+        PersistenceFormat.Custom => {
+            return "Custom";
+        }
+    }
+}
+
+// 持久化统计信息转字符串
+fn persistence_stats_to_string(stats: PersistenceStats) string {
+    let mut result = "持久化统计信息:\n";
+    result = string.concat(result, "  总保存次数: " + string.from_int(stats.total_saves) + "\n");
+    result = string.concat(result, "  总加载次数: " + string.from_int(stats.total_loads) + "\n");
+    result = string.concat(result, "  总删除次数: " + string.from_int(stats.total_deletes) + "\n");
+    result = string.concat(result, "  总快照次数: " + string.from_int(stats.total_snapshots) + "\n");
+    result = string.concat(result, "  总事件数: " + string.from_int(stats.total_events) + "\n");
+    result = string.concat(result, "  失败操作数: " + string.from_int(stats.failed_operations) + "\n");
+    result = string.concat(result, "  总数据大小: " + string.from_int(stats.total_data_size) + " 字节\n");
+    result = string.concat(result, "  平均保存时间: " + string.from_int(stats.average_save_time_ms) + " 毫秒\n");
+    result = string.concat(result, "  平均加载时间: " + string.from_int(stats.average_load_time_ms) + " 毫秒\n");
+    return result;
+}

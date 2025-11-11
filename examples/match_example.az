@@ -1,0 +1,112 @@
+// AZ语言 - Match语句示例
+
+// 示例1: 基本的match语句
+fn describe_number(n: int) string {
+    match n {
+        0 => return "零",
+        1 => return "一",
+        2 => return "二",
+        3 => return "三",
+        _ => return "其他数字"
+    }
+}
+
+// 示例2: 使用或模式
+fn is_weekend(day: int) bool {
+    match day {
+        6 | 7 => return true,
+        _ => return false
+    }
+}
+
+// 示例3: 使用守卫条件
+fn classify_number(n: int) string {
+    match n {
+        0 => return "零",
+        n if n > 0 => return "正数",
+        n if n < 0 => return "负数",
+        _ => return "未知"
+    }
+}
+
+// 示例4: 使用代码块
+fn process_value(value: int) int {
+    match value {
+        0 => {
+            println("值为零");
+            return 0;
+        },
+        1 | 2 | 3 => {
+            println("小数字");
+            return value * 2;
+        },
+        _ => {
+            println("大数字");
+            return value * 10;
+        }
+    }
+}
+
+// 示例5: 嵌套match
+fn get_grade(score: int) string {
+    match score {
+        90 | 91 | 92 | 93 | 94 | 95 | 96 | 97 | 98 | 99 | 100 => return "A",
+        80 | 81 | 82 | 83 | 84 | 85 | 86 | 87 | 88 | 89 => return "B",
+        70 | 71 | 72 | 73 | 74 | 75 | 76 | 77 | 78 | 79 => return "C",
+        60 | 61 | 62 | 63 | 64 | 65 | 66 | 67 | 68 | 69 => return "D",
+        _ => return "F"
+    }
+}
+
+// 示例6: 使用match进行状态机
+fn process_state(state: int, input: int) int {
+    match state {
+        0 => {
+            match input {
+                1 => return 1,
+                2 => return 2,
+                _ => return 0
+            }
+        },
+        1 => {
+            match input {
+                1 => return 2,
+                _ => return 0
+            }
+        },
+        2 => {
+            return 0;
+        },
+        _ => return 0
+    }
+}
+
+// 主函数
+fn main() int {
+    // 测试基本match
+    println("数字0: " + describe_number(0));
+    println("数字1: " + describe_number(1));
+    println("数字5: " + describe_number(5));
+    
+    // 测试或模式
+    println("星期6是周末吗? " + is_weekend(6));
+    println("星期3是周末吗? " + is_weekend(3));
+    
+    // 测试守卫条件
+    println("分类10: " + classify_number(10));
+    println("分类-5: " + classify_number(-5));
+    println("分类0: " + classify_number(0));
+    
+    // 测试代码块
+    let result1 = process_value(0);
+    let result2 = process_value(2);
+    let result3 = process_value(10);
+    println("处理结果: " + result1 + ", " + result2 + ", " + result3);
+    
+    // 测试成绩
+    println("分数95: " + get_grade(95));
+    println("分数75: " + get_grade(75));
+    println("分数55: " + get_grade(55));
+    
+    return 0;
+}

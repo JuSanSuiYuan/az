@@ -1,0 +1,24 @@
+# AZ fmt配置文件
+# 类似于rustfmt.toml
+
+# 缩进设置
+indent_size = 4
+use_spaces = true
+
+# 行宽设置
+max_line_length = 100
+
+# 空格设置
+space_before_brace = true
+space_after_comma = true
+space_around_operators = true
+
+# 换行设置
+newline_before_brace = false
+
+# 对齐设置
+align_struct_fields = true
+align_function_params = false
+
+# 其他设置
+trailing_comma = true

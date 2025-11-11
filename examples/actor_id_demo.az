@@ -1,0 +1,59 @@
+// Actor ID系统演示程序
+import std.actor.{ActorId, new_actor_id, random_actor_id, uuid_actor_id, actor_id_to_string, actor_id_equals};
+import std.time.{srand, rand, now};
+import std.string;
+import std.io.{println};
+
+fn main() int {
+    // 初始化随机数种子
+    let current_time = now();
+    srand(current_time.seconds as int);
+    
+    println("=== Actor ID系统演示 ===");
+    
+    // 创建不同类型的Actor ID
+    let id1 = new_actor_id("user-123");
+    let id2 = new_actor_id("user-456");
+    let id3 = new_actor_id("user-123"); // 相同ID
+    
+    println("字符串类型Actor ID:");
+    println("  ID1: " + actor_id_to_string(id1));
+    println("  ID2: " + actor_id_to_string(id2));
+    println("  ID3: " + actor_id_to_string(id3));
+    
+    // 比较Actor ID
+    println("\nActor ID比较:");
+    println("  ID1 == ID2: " + string.from_bool(actor_id_equals(id1, id2)));
+    println("  ID1 == ID3: " + string.from_bool(actor_id_equals(id1, id3)));
+    
+    // 生成随机Actor ID
+    let random_id1 = random_actor_id();
+    let random_id2 = random_actor_id();
+    
+    println("\n随机Actor ID:");
+    println("  Random ID1: " + actor_id_to_string(random_id1));
+    println("  Random ID2: " + actor_id_to_string(random_id2));
+    println("  相等性检查: " + string.from_bool(actor_id_equals(random_id1, random_id2)));
+    
+    // 生成UUID格式的Actor ID
+    let uuid_id1 = uuid_actor_id();
+    let uuid_id2 = uuid_actor_id();
+    
+    println("\nUUID格式Actor ID:");
+    println("  UUID ID1: " + actor_id_to_string(uuid_id1));
+    println("  UUID ID2: " + actor_id_to_string(uuid_id2));
+    println("  相等性检查: " + string.from_bool(actor_id_equals(uuid_id1, uuid_id2)));
+    
+    println("\n=== 演示完成 ===");
+    
+    return 0;
+}
+
+// 工具函数：布尔值转字符串
+fn string.from_bool(b: bool) string {
+    if (b) {
+        return "true";
+    } else {
+        return "false";
+    }
+}

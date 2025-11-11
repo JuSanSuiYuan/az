@@ -1,0 +1,439 @@
+// std.os - 操作系统接口模块
+// 版本: v1.0.0
+// 日期: 2025-10-30
+
+module std.os;
+
+import std.error.{Result, Option, OSError};
+import std.string;
+import std.collections.{Vec, HashMap};
+
+// ============================================================================
+// C标准库和POSIX接口
+// ============================================================================
+
+extern "C" {
+    // 环境变量
+    fn getenv(name: *char) *char;
+    fn setenv(name: *char, value: *char, overwrite: int) int;
+    fn unsetenv(name: *char) int;
+    extern environ: **char;
+    
+    // 进程
+    fn getpid() int;
+    fn getppid() int;
+    fn exit(status: int) void;
+    fn abort() void;
+    fn system(command: *char) int;
+    fn fork() int;
+    fn execvp(file: *char, argv: **char) int;
+    fn waitpid(pid: int, status: *int, options: int) int;
+    fn kill(pid: int, sig: int) int;
+    
+    // 用户和主机
+    fn getuid() int;
+    fn getgid() int;
+    fn gethostname(name: *char, len: int) int;
+    fn getlogin() *char;
+    
+    // 其他
+    fn sleep(seconds: int) int;
+    fn usleep(usec: int) int;
+}
+
+// 信号常量
+const SIGTERM: int = 15;
+const SIGKILL: int = 9;
+const SIGINT: int = 2;
+
+// ============================================================================
+// 环境变量
+// ============================================================================
+
+/// 获取环境变量
+pub fn getenv_var(key: string) Option<string> {
+    let value = getenv(key.as_ptr());
+    if (value == null) {
+        return Option.None;
+    }
+    return Option.Some(string_from_cstr(value));
+}
+
+/// 设置环境变量
+pub fn setenv_var(key: string, value: string) Result<void, OSError> {
+    if (setenv(key.as_ptr(), value.as_ptr(), 1) != 0) {
+        return Result.Err(OSError.SetEnvError);
+    }
+    return Result.Ok(());
+}
+
+/// 删除环境变量
+pub fn unsetenv_var(key: string) Result<void, OSError> {
+    if (unsetenv(key.as_ptr()) != 0) {
+        return Result.Err(OSError.UnsetEnvError);
+    }
+    return Result.Ok(());
+}
+
+/// 获取所有环境变量
+pub fn environ_vars() HashMap<string, string> {
+    let result = HashMap<string, string>.new();
+    
+    var i = 0;
+    loop {
+        let entry = environ[i];
+        if (entry == null) {
+            break;
+        }
+        
+        let entry_str = string_from_cstr(entry);
+        
+        // 查找 '='
+        match string.find_char(entry_str, '=') {
+            case Option.Some(index):
+                let key = string.substring(entry_str, 0, index);
+                let value = string.skip(entry_str, index + 1);
+                result.insert(key, value);
+            case Option.None:
+                // 忽略无效条目
+        }
+        
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+// ============================================================================
+// 进程管理
+// ============================================================================
+
+/// 进程句柄
+pub struct Process {
+    pid: int,
+    running: bool
+}
+
+/// 获取当前进程ID
+pub fn current_pid() int {
+    return getpid();
+}
+
+/// 获取父进程ID
+pub fn parent_pid() int {
+    return getppid();
+}
+
+/// 退出程序
+pub fn exit_process(code: int) void {
+    exit(code);
+}
+
+/// 异常终止
+pub fn abort_process() void {
+    abort();
+}
+
+/// 执行命令并等待完成
+pub fn exec_command(cmd: string) Result<int, OSError> {
+    let exit_code = system(cmd.as_ptr());
+    if (exit_code == -1) {
+        return Result.Err(OSError.ExecError);
+    }
+    return Result.Ok(exit_code);
+}
+
+/// 执行命令（带参数）
+pub fn exec_with_args(cmd: string, args: Vec<string>) Result<int, OSError> {
+    // 构建完整命令
+    var full_cmd = cmd;
+    for (var i = 0; i < args.len(); i = i + 1) {
+        full_cmd = string.concat(full_cmd, " ");
+        full_cmd = string.concat(full_cmd, args.get(i).unwrap());
+    }
+    
+    return exec_command(full_cmd);
+}
+
+/// 生成子进程
+pub fn spawn_process(cmd: string, args: Vec<string>) Result<Process, OSError> {
+    let pid = fork();
+    
+    if (pid < 0) {
+        return Result.Err(OSError.ForkError);
+    }
+    
+    if (pid == 0) {
+        // 子进程
+        // 准备参数数组
+        let argc = args.len() + 2;
+        let argv = alloc_string_array(argc);
+        
+        argv[0] = cmd.as_ptr();
+        for (var i = 0; i < args.len(); i = i + 1) {
+            argv[i + 1] = args.get(i).unwrap().as_ptr();
+        }
+        argv[argc - 1] = null;
+        
+        // 执行命令
+        execvp(cmd.as_ptr(), argv);
+        
+        // 如果execvp返回，说明出错
+        exit(1);
+    }
+    
+    // 父进程
+    return Result.Ok(Process {
+        pid: pid,
+        running: true
+    });
+}
+
+/// 等待进程结束
+pub fn (self: *Process) wait() Result<int, OSError> {
+    if (!self.running) {
+        return Result.Err(OSError.ProcessNotRunning);
+    }
+    
+    var status: int;
+    let result = waitpid(self.pid, &status, 0);
+    
+    if (result < 0) {
+        return Result.Err(OSError.WaitError);
+    }
+    
+    self.running = false;
+    return Result.Ok(status);
+}
+
+/// 终止进程
+pub fn (self: *Process) kill() Result<void, OSError> {
+    if (!self.running) {
+        return Result.Err(OSError.ProcessNotRunning);
+    }
+    
+    if (kill(self.pid, SIGTERM) != 0) {
+        return Result.Err(OSError.KillError);
+    }
+    
+    self.running = false;
+    return Result.Ok(());
+}
+
+/// 强制终止进程
+pub fn (self: *Process) force_kill() Result<void, OSError> {
+    if (!self.running) {
+        return Result.Err(OSError.ProcessNotRunning);
+    }
+    
+    if (kill(self.pid, SIGKILL) != 0) {
+        return Result.Err(OSError.KillError);
+    }
+    
+    self.running = false;
+    return Result.Ok(());
+}
+
+/// 检查进程是否运行
+pub fn (self: *Process) is_running() bool {
+    if (!self.running) {
+        return false;
+    }
+    
+    // 尝试发送信号0检查进程是否存在
+    return kill(self.pid, 0) == 0;
+}
+
+// ============================================================================
+// 用户和主机信息
+// ============================================================================
+
+/// 获取主机名
+pub fn hostname() Result<string, OSError> {
+    let buffer: [256]char;
+    if (gethostname(&buffer[0], 256) != 0) {
+        return Result.Err(OSError.GetHostnameError);
+    }
+    return Result.Ok(string_from_cstr(&buffer[0]));
+}
+
+/// 获取用户名
+pub fn username() Result<string, OSError> {
+    let name = getlogin();
+    if (name == null) {
+        return Result.Err(OSError.GetUsernameError);
+    }
+    return Result.Ok(string_from_cstr(name));
+}
+
+/// 获取用户ID
+pub fn user_id() int {
+    return getuid();
+}
+
+/// 获取组ID
+pub fn group_id() int {
+    return getgid();
+}
+
+/// 获取主目录
+pub fn home_dir() Result<string, OSError> {
+    match getenv_var("HOME") {
+        case Option.Some(dir):
+            return Result.Ok(dir);
+        case Option.None:
+            return Result.Err(OSError.GetHomeDirError);
+    }
+}
+
+// ============================================================================
+// 平台信息
+// ============================================================================
+
+/// 获取操作系统名称
+pub fn os_name() string {
+    #[cfg(target_os = "linux")]
+    return "linux";
+    
+    #[cfg(target_os = "macos")]
+    return "macos";
+    
+    #[cfg(target_os = "windows")]
+    return "windows";
+    
+    #[cfg(target_os = "freebsd")]
+    return "freebsd";
+    
+    return "unknown";
+}
+
+/// 获取操作系统版本
+pub fn os_version() string {
+    // 简化实现，实际应该读取系统信息
+    return "unknown";
+}
+
+/// 获取架构
+pub fn arch() string {
+    #[cfg(target_arch = "x86_64")]
+    return "x86_64";
+    
+    #[cfg(target_arch = "x86")]
+    return "x86";
+    
+    #[cfg(target_arch = "arm")]
+    return "arm";
+    
+    #[cfg(target_arch = "aarch64")]
+    return "aarch64";
+    
+    return "unknown";
+}
+
+/// 获取CPU核心数
+pub fn cpu_count() int {
+    // 简化实现
+    match getenv_var("NUMBER_OF_PROCESSORS") {
+        case Option.Some(count_str):
+            match string.to_int(count_str) {
+                case Result.Ok(count):
+                    return count;
+                case Result.Err(_):
+                    return 1;
+            }
+        case Option.None:
+            return 1;
+    }
+}
+
+// ============================================================================
+// 睡眠
+// ============================================================================
+
+/// 睡眠（秒）
+pub fn sleep_seconds(seconds: int) void {
+    sleep(seconds);
+}
+
+/// 睡眠（毫秒）
+pub fn sleep_ms(milliseconds: int) void {
+    usleep(milliseconds * 1000);
+}
+
+/// 睡眠（微秒）
+pub fn sleep_us(microseconds: int) void {
+    usleep(microseconds);
+}
+
+// ============================================================================
+// 命令行参数
+// ============================================================================
+
+/// 命令行参数（需要在main函数中初始化）
+static mut ARGS: Vec<string>;
+static mut ARGS_INITIALIZED: bool = false;
+
+/// 初始化命令行参数
+pub fn init_args(argc: int, argv: **char) void {
+    if (ARGS_INITIALIZED) {
+        return;
+    }
+    
+    ARGS = Vec<string>.with_capacity(argc);
+    
+    for (var i = 0; i < argc; i = i + 1) {
+        ARGS.push(string_from_cstr(argv[i]));
+    }
+    
+    ARGS_INITIALIZED = true;
+}
+
+/// 获取命令行参数
+pub fn args() Vec<string> {
+    if (!ARGS_INITIALIZED) {
+        return Vec<string>.new();
+    }
+    return ARGS.clone();
+}
+
+/// 获取程序名
+pub fn program_name() Option<string> {
+    if (!ARGS_INITIALIZED || ARGS.is_empty()) {
+        return Option.None;
+    }
+    return ARGS.first();
+}
+
+// ============================================================================
+// 信号处理
+// ============================================================================
+
+/// 发送信号到进程
+pub fn send_signal(pid: int, signal: int) Result<void, OSError> {
+    if (kill(pid, signal) != 0) {
+        return Result.Err(OSError.SignalError);
+    }
+    return Result.Ok(());
+}
+
+/// 终止进程
+pub fn terminate_process(pid: int) Result<void, OSError> {
+    return send_signal(pid, SIGTERM);
+}
+
+/// 强制终止进程
+pub fn kill_process(pid: int) Result<void, OSError> {
+    return send_signal(pid, SIGKILL);
+}
+
+/// 中断进程
+pub fn interrupt_process(pid: int) Result<void, OSError> {
+    return send_signal(pid, SIGINT);
+}
+
+// ============================================================================
+// 辅助函数
+// ============================================================================
+
+extern fn string_from_cstr(cstr: *char) string;
+extern fn alloc_string_array(size: int) **char;

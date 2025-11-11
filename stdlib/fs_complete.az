@@ -1,0 +1,553 @@
+// std.fs - 文件系统模块
+// 版本: v1.0.0
+// 日期: 2025-10-30
+
+module std.fs;
+
+import std.error.{Result, Option, IOError};
+import std.string;
+import std.collections.Vec;
+import std.io.File;
+
+// ============================================================================
+// C标准库和POSIX接口
+// ============================================================================
+
+extern "C" {
+    // 文件状态
+    fn stat(path: *char, buf: *Stat) int;
+    fn lstat(path: *char, buf: *Stat) int;
+    fn access(path: *char, mode: int) int;
+    
+    // 文件操作
+    fn remove(path: *char) int;
+    fn rename(old: *char, new: *char) int;
+    fn link(old: *char, new: *char) int;
+    fn symlink(target: *char, linkpath: *char) int;
+    fn readlink(path: *char, buf: *char, size: int) int;
+    
+    // 目录操作
+    fn mkdir(path: *char, mode: int) int;
+    fn rmdir(path: *char) int;
+    fn opendir(path: *char) *DIR;
+    fn readdir(dir: *DIR) *Dirent;
+    fn closedir(dir: *DIR) int;
+    fn getcwd(buf: *char, size: int) *char;
+    fn chdir(path: *char) int;
+    
+    // 权限
+    fn chmod(path: *char, mode: int) int;
+    fn chown(path: *char, uid: int, gid: int) int;
+    
+    // 其他
+    fn realpath(path: *char, resolved: *char) *char;
+}
+
+// 文件状态结构
+struct Stat {
+    st_mode: int,
+    st_size: int,
+    st_mtime: int,
+    st_atime: int,
+    st_ctime: int,
+    st_uid: int,
+    st_gid: int
+}
+
+// 目录句柄
+struct DIR;
+
+// 目录项
+struct Dirent {
+    d_name: [256]char,
+    d_type: int
+}
+
+// 文件类型常量
+const S_IFMT: int = 0o170000;
+const S_IFREG: int = 0o100000;
+const S_IFDIR: int = 0o040000;
+const S_IFLNK: int = 0o120000;
+
+// 访问模式
+const F_OK: int = 0;  // 存在性
+const R_OK: int = 4;  // 可读
+const W_OK: int = 2;  // 可写
+const X_OK: int = 1;  // 可执行
+
+// ============================================================================
+// 文件元数据
+// ============================================================================
+
+/// 文件元数据
+pub struct Metadata {
+    size: int,
+    is_file: bool,
+    is_dir: bool,
+    is_symlink: bool,
+    modified_time: int,
+    accessed_time: int,
+    created_time: int,
+    permissions: int
+}
+
+/// 获取文件元数据
+pub fn metadata(path: string) Result<Metadata, IOError> {
+    var st: Stat;
+    let result = stat(path.as_ptr(), &st);
+    
+    if (result != 0) {
+        return Result.Err(IOError.FileNotFound);
+    }
+    
+    let file_type = st.st_mode & S_IFMT;
+    
+    return Result.Ok(Metadata {
+        size: st.st_size,
+        is_file: file_type == S_IFREG,
+        is_dir: file_type == S_IFDIR,
+        is_symlink: file_type == S_IFLNK,
+        modified_time: st.st_mtime,
+        accessed_time: st.st_atime,
+        created_time: st.st_ctime,
+        permissions: st.st_mode & 0o777
+    });
+}
+
+/// 获取符号链接元数据（不跟随链接）
+pub fn symlink_metadata(path: string) Result<Metadata, IOError> {
+    var st: Stat;
+    let result = lstat(path.as_ptr(), &st);
+    
+    if (result != 0) {
+        return Result.Err(IOError.FileNotFound);
+    }
+    
+    let file_type = st.st_mode & S_IFMT;
+    
+    return Result.Ok(Metadata {
+        size: st.st_size,
+        is_file: file_type == S_IFREG,
+        is_dir: file_type == S_IFDIR,
+        is_symlink: file_type == S_IFLNK,
+        modified_time: st.st_mtime,
+        accessed_time: st.st_atime,
+        created_time: st.st_ctime,
+        permissions: st.st_mode & 0o777
+    });
+}
+
+// ============================================================================
+// 文件检查
+// ============================================================================
+
+/// 检查路径是否存在
+pub fn exists(path: string) bool {
+    return access(path.as_ptr(), F_OK) == 0;
+}
+
+/// 检查是否为文件
+pub fn is_file(path: string) bool {
+    match metadata(path) {
+        case Result.Ok(meta):
+            return meta.is_file;
+        case Result.Err(_):
+            return false;
+    }
+}
+
+/// 检查是否为目录
+pub fn is_dir(path: string) bool {
+    match metadata(path) {
+        case Result.Ok(meta):
+            return meta.is_dir;
+        case Result.Err(_):
+            return false;
+    }
+}
+
+/// 检查是否为符号链接
+pub fn is_symlink(path: string) bool {
+    match symlink_metadata(path) {
+        case Result.Ok(meta):
+            return meta.is_symlink;
+        case Result.Err(_):
+            return false;
+    }
+}
+
+/// 检查文件是否可读
+pub fn is_readable(path: string) bool {
+    return access(path.as_ptr(), R_OK) == 0;
+}
+
+/// 检查文件是否可写
+pub fn is_writable(path: string) bool {
+    return access(path.as_ptr(), W_OK) == 0;
+}
+
+/// 检查文件是否可执行
+pub fn is_executable(path: string) bool {
+    return access(path.as_ptr(), X_OK) == 0;
+}
+
+// ============================================================================
+// 文件操作
+// ============================================================================
+
+/// 删除文件
+pub fn remove_file(path: string) Result<void, IOError> {
+    if (remove(path.as_ptr()) != 0) {
+        return Result.Err(IOError.RemoveError);
+    }
+    return Result.Ok(());
+}
+
+/// 复制文件
+pub fn copy_file(src: string, dst: string) Result<void, IOError> {
+    // 读取源文件
+    let content_result = io.read_file(src);
+    if (content_result.is_err()) {
+        return Result.Err(content_result.unwrap_err());
+    }
+    
+    // 写入目标文件
+    let write_result = io.write_file(dst, content_result.unwrap());
+    if (write_result.is_err()) {
+        return Result.Err(write_result.unwrap_err());
+    }
+    
+    return Result.Ok(());
+}
+
+/// 移动/重命名文件
+pub fn rename_file(old: string, new: string) Result<void, IOError> {
+    if (rename(old.as_ptr(), new.as_ptr()) != 0) {
+        return Result.Err(IOError.RenameError);
+    }
+    return Result.Ok(());
+}
+
+/// 创建硬链接
+pub fn hard_link(src: string, dst: string) Result<void, IOError> {
+    if (link(src.as_ptr(), dst.as_ptr()) != 0) {
+        return Result.Err(IOError.LinkError);
+    }
+    return Result.Ok(());
+}
+
+/// 创建符号链接
+pub fn symlink_file(target: string, linkpath: string) Result<void, IOError> {
+    if (symlink(target.as_ptr(), linkpath.as_ptr()) != 0) {
+        return Result.Err(IOError.LinkError);
+    }
+    return Result.Ok(());
+}
+
+/// 读取符号链接
+pub fn read_link(path: string) Result<string, IOError> {
+    let buffer: [1024]char;
+    let len = readlink(path.as_ptr(), &buffer[0], 1024);
+    
+    if (len < 0) {
+        return Result.Err(IOError.ReadError);
+    }
+    
+    buffer[len] = 0;
+    return Result.Ok(string_from_cstr(&buffer[0]));
+}
+
+/// 获取文件大小
+pub fn file_size(path: string) Result<int, IOError> {
+    match metadata(path) {
+        case Result.Ok(meta):
+            return Result.Ok(meta.size);
+        case Result.Err(error):
+            return Result.Err(error);
+    }
+}
+
+// ============================================================================
+// 目录操作
+// ============================================================================
+
+/// 目录项
+pub struct DirEntry {
+    name: string,
+    path: string,
+    is_file: bool,
+    is_dir: bool
+}
+
+/// 创建目录
+pub fn create_dir(path: string) Result<void, IOError> {
+    if (mkdir(path.as_ptr(), 0o755) != 0) {
+        return Result.Err(IOError.CreateDirError);
+    }
+    return Result.Ok(());
+}
+
+/// 递归创建目录
+pub fn create_dir_all(path: string) Result<void, IOError> {
+    // 如果已存在，直接返回
+    if (exists(path)) {
+        if (is_dir(path)) {
+            return Result.Ok(());
+        } else {
+            return Result.Err(IOError.AlreadyExists);
+        }
+    }
+    
+    // 获取父目录
+    let parent = dirname(path);
+    if (!string.is_empty(parent) && parent != path) {
+        // 递归创建父目录
+        let parent_result = create_dir_all(parent);
+        if (parent_result.is_err()) {
+            return parent_result;
+        }
+    }
+    
+    // 创建当前目录
+    return create_dir(path);
+}
+
+/// 删除空目录
+pub fn remove_dir(path: string) Result<void, IOError> {
+    if (rmdir(path.as_ptr()) != 0) {
+        return Result.Err(IOError.RemoveDirError);
+    }
+    return Result.Ok(());
+}
+
+/// 递归删除目录
+pub fn remove_dir_all(path: string) Result<void, IOError> {
+    // 读取目录内容
+    let entries_result = read_dir(path);
+    if (entries_result.is_err()) {
+        return Result.Err(entries_result.unwrap_err());
+    }
+    
+    let entries = entries_result.unwrap();
+    
+    // 删除所有子项
+    for (var i = 0; i < entries.len(); i = i + 1) {
+        let entry = entries.get(i).unwrap();
+        
+        if (entry.is_dir) {
+            // 递归删除子目录
+            let remove_result = remove_dir_all(entry.path);
+            if (remove_result.is_err()) {
+                return remove_result;
+            }
+        } else {
+            // 删除文件
+            let remove_result = remove_file(entry.path);
+            if (remove_result.is_err()) {
+                return remove_result;
+            }
+        }
+    }
+    
+    // 删除空目录
+    return remove_dir(path);
+}
+
+/// 读取目录内容
+pub fn read_dir(path: string) Result<Vec<DirEntry>, IOError> {
+    let dir = opendir(path.as_ptr());
+    if (dir == null) {
+        return Result.Err(IOError.OpenDirError);
+    }
+    defer closedir(dir);
+    
+    let entries = Vec<DirEntry>.new();
+    
+    loop {
+        let entry = readdir(dir);
+        if (entry == null) {
+            break;
+        }
+        
+        let name = string_from_cstr(&entry.d_name[0]);
+        
+        // 跳过 . 和 ..
+        if (name == "." || name == "..") {
+            continue;
+        }
+        
+        let entry_path = join_path(path, name);
+        
+        entries.push(DirEntry {
+            name: name,
+            path: entry_path,
+            is_file: is_file(entry_path),
+            is_dir: is_dir(entry_path)
+        });
+    }
+    
+    return Result.Ok(entries);
+}
+
+// ============================================================================
+// 路径操作
+// ============================================================================
+
+/// 连接路径
+pub fn join_path(base: string, name: string) string {
+    if (string.is_empty(base)) {
+        return name;
+    }
+    
+    if (string.ends_with(base, "/") || string.ends_with(base, "\\")) {
+        return string.concat(base, name);
+    }
+    
+    return string.concat(string.concat(base, "/"), name);
+}
+
+/// 获取文件名
+pub fn basename(path: string) string {
+    let len = string.length(path);
+    
+    // 从后往前查找路径分隔符
+    for (var i = len - 1; i >= 0; i = i - 1) {
+        let c = string.char_at(path, i).unwrap();
+        if (c == '/' || c == '\\') {
+            return string.substring(path, i + 1, len);
+        }
+    }
+    
+    return path;
+}
+
+/// 获取目录名
+pub fn dirname(path: string) string {
+    let len = string.length(path);
+    
+    // 从后往前查找路径分隔符
+    for (var i = len - 1; i >= 0; i = i - 1) {
+        let c = string.char_at(path, i).unwrap();
+        if (c == '/' || c == '\\') {
+            if (i == 0) {
+                return "/";
+            }
+            return string.substring(path, 0, i);
+        }
+    }
+    
+    return ".";
+}
+
+/// 获取文件扩展名
+pub fn extension(path: string) Option<string> {
+    let name = basename(path);
+    
+    match string.rfind_char(name, '.') {
+        case Option.Some(index):
+            if (index > 0) {  // 不是隐藏文件
+                return Option.Some(string.skip(name, index + 1));
+            }
+            return Option.None;
+        case Option.None:
+            return Option.None;
+    }
+}
+
+/// 获取不带扩展名的文件名
+pub fn stem(path: string) string {
+    let name = basename(path);
+    
+    match string.rfind_char(name, '.') {
+        case Option.Some(index):
+            if (index > 0) {
+                return string.take(name, index);
+            }
+            return name;
+        case Option.None:
+            return name;
+    }
+}
+
+/// 获取绝对路径
+pub fn absolute(path: string) Result<string, IOError> {
+    let buffer: [4096]char;
+    let result = realpath(path.as_ptr(), &buffer[0]);
+    
+    if (result == null) {
+        return Result.Err(IOError.InvalidPath);
+    }
+    
+    return Result.Ok(string_from_cstr(&buffer[0]));
+}
+
+/// 规范化路径
+pub fn canonicalize(path: string) Result<string, IOError> {
+    return absolute(path);
+}
+
+// ============================================================================
+// 工作目录
+// ============================================================================
+
+/// 获取当前工作目录
+pub fn current_dir() Result<string, IOError> {
+    let buffer: [4096]char;
+    let result = getcwd(&buffer[0], 4096);
+    
+    if (result == null) {
+        return Result.Err(IOError.GetCwdError);
+    }
+    
+    return Result.Ok(string_from_cstr(&buffer[0]));
+}
+
+/// 设置当前工作目录
+pub fn set_current_dir(path: string) Result<void, IOError> {
+    if (chdir(path.as_ptr()) != 0) {
+        return Result.Err(IOError.SetCwdError);
+    }
+    return Result.Ok(());
+}
+
+// ============================================================================
+// 权限管理
+// ============================================================================
+
+/// 修改文件权限
+pub fn set_permissions(path: string, mode: int) Result<void, IOError> {
+    if (chmod(path.as_ptr(), mode) != 0) {
+        return Result.Err(IOError.PermissionDenied);
+    }
+    return Result.Ok(());
+}
+
+/// 修改文件所有者
+pub fn set_owner(path: string, uid: int, gid: int) Result<void, IOError> {
+    if (chown(path.as_ptr(), uid, gid) != 0) {
+        return Result.Err(IOError.PermissionDenied);
+    }
+    return Result.Ok(());
+}
+
+// ============================================================================
+// 临时文件
+// ============================================================================
+
+/// 获取临时目录
+pub fn temp_dir() string {
+    // 尝试环境变量
+    match os.getenv("TMPDIR") {
+        case Option.Some(dir):
+            return dir;
+        case Option.None:
+            // 默认临时目录
+            return "/tmp";
+    }
+}
+
+// ============================================================================
+// 辅助函数
+// ============================================================================
+
+extern fn string_from_cstr(cstr: *char) string;

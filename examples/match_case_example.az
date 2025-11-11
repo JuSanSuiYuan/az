@@ -1,0 +1,328 @@
+// AZ语言 - Match Case语句示例
+// 类似Python的match case语法
+
+module examples.match_case;
+
+import std.io;
+
+// ============================================================================
+// 示例1: 基本的match case
+// ============================================================================
+
+pub fn describe_number(n: int) string {
+    match n {
+        case 0:
+            return "零";
+        case 1:
+            return "一";
+        case 2:
+            return "二";
+        case 3:
+            return "三";
+        case _:
+            return "其他数字";
+    }
+}
+
+// ============================================================================
+// 示例2: 使用或模式（多个值）
+// ============================================================================
+
+pub fn is_weekend(day: int) bool {
+    match day {
+        case 6:
+        case 7:
+            return true;
+        case _:
+            return false;
+    }
+}
+
+// 或者使用逗号分隔
+pub fn is_weekday(day: int) bool {
+    match day {
+        case 1, 2, 3, 4, 5:
+            return true;
+        case _:
+            return false;
+    }
+}
+
+// ============================================================================
+// 示例3: 使用守卫条件（if）
+// ============================================================================
+
+pub fn classify_number(n: int) string {
+    match n {
+        case 0:
+            return "零";
+        case _ if n > 0:
+            return "正数";
+        case _ if n < 0:
+            return "负数";
+        case _:
+            return "未知";
+    }
+}
+
+// ============================================================================
+// 示例4: 使用代码块
+// ============================================================================
+
+pub fn process_value(value: int) int {
+    match value {
+        case 0: {
+            println("值为零");
+            return 0;
+        }
+        case 1, 2, 3: {
+            println("小数字");
+            return value * 2;
+        }
+        case _: {
+            println("大数字");
+            return value * 10;
+        }
+    }
+}
+
+// ============================================================================
+// 示例5: HTTP状态码处理
+// ============================================================================
+
+pub fn handle_http_status(code: int) string {
+    match code {
+        case 200:
+            return "OK";
+        case 201:
+            return "Created";
+        case 204:
+            return "No Content";
+        case 400:
+            return "Bad Request";
+        case 401:
+            return "Unauthorized";
+        case 403:
+            return "Forbidden";
+        case 404:
+            return "Not Found";
+        case 500:
+            return "Internal Server Error";
+        case 502:
+            return "Bad Gateway";
+        case 503:
+            return "Service Unavailable";
+        case _:
+            return "Unknown Status";
+    }
+}
+
+// ============================================================================
+// 示例6: 成绩等级
+// ============================================================================
+
+pub fn get_grade(score: int) string {
+    match score {
+        case _ if score >= 90:
+            return "A";
+        case _ if score >= 80:
+            return "B";
+        case _ if score >= 70:
+            return "C";
+        case _ if score >= 60:
+            return "D";
+        case _:
+            return "F";
+    }
+}
+
+// ============================================================================
+// 示例7: 嵌套match case
+// ============================================================================
+
+pub fn process_command(cmd: string, arg: int) string {
+    match cmd {
+        case "add": {
+            match arg {
+                case 0:
+                    return "Cannot add zero";
+                case _ if arg > 0:
+                    return "Adding positive number";
+                case _:
+                    return "Adding negative number";
+            }
+        }
+        case "sub": {
+            match arg {
+                case 0:
+                    return "Cannot subtract zero";
+                case _:
+                    return "Subtracting number";
+            }
+        }
+        case "mul":
+            return "Multiplying";
+        case "div": {
+            if (arg == 0) {
+                return "Error: Division by zero";
+            }
+            return "Dividing";
+        }
+        case _:
+            return "Unknown command";
+    }
+}
+
+// ============================================================================
+// 示例8: 状态机
+// ============================================================================
+
+pub fn process_state(state: int, input: int) int {
+    match state {
+        case 0: {
+            match input {
+                case 1:
+                    return 1;
+                case 2:
+                    return 2;
+                case _:
+                    return 0;
+            }
+        }
+        case 1: {
+            match input {
+                case 1:
+                    return 2;
+                case _:
+                    return 0;
+            }
+        }
+        case 2:
+            return 0;
+        case _:
+            return 0;
+    }
+}
+
+// ============================================================================
+// 示例9: 字符串匹配
+// ============================================================================
+
+pub fn process_command_string(cmd: string) string {
+    match cmd {
+        case "start":
+            return "Starting...";
+        case "stop":
+            return "Stopping...";
+        case "pause":
+            return "Pausing...";
+        case "resume":
+            return "Resuming...";
+        case "help":
+            return "Available commands: start, stop, pause, resume, help";
+        case _:
+            return "Unknown command: " + cmd;
+    }
+}
+
+// ============================================================================
+// 示例10: 范围匹配（使用守卫）
+// ============================================================================
+
+pub fn classify_age(age: int) string {
+    match age {
+        case _ if age < 0:
+            return "Invalid age";
+        case _ if age < 13:
+            return "Child";
+        case _ if age < 20:
+            return "Teenager";
+        case _ if age < 60:
+            return "Adult";
+        case _ if age < 120:
+            return "Senior";
+        case _:
+            return "Invalid age";
+    }
+}
+
+// ============================================================================
+// 主函数 - 测试所有示例
+// ============================================================================
+
+pub fn main() int {
+    println("=== AZ语言 - Match Case示例 ===");
+    println("");
+    
+    // 测试1: 基本match case
+    println("--- 基本Match Case ---");
+    println("数字0: " + describe_number(0));
+    println("数字1: " + describe_number(1));
+    println("数字5: " + describe_number(5));
+    println("");
+    
+    // 测试2: 或模式
+    println("--- 或模式 ---");
+    println("星期6是周末吗? " + is_weekend(6));
+    println("星期3是周末吗? " + is_weekend(3));
+    println("星期3是工作日吗? " + is_weekday(3));
+    println("");
+    
+    // 测试3: 守卫条件
+    println("--- 守卫条件 ---");
+    println("分类10: " + classify_number(10));
+    println("分类-5: " + classify_number(-5));
+    println("分类0: " + classify_number(0));
+    println("");
+    
+    // 测试4: 代码块
+    println("--- 代码块 ---");
+    let result1 = process_value(0);
+    let result2 = process_value(2);
+    let result3 = process_value(10);
+    println("处理结果: " + result1 + ", " + result2 + ", " + result3);
+    println("");
+    
+    // 测试5: HTTP状态码
+    println("--- HTTP状态码 ---");
+    println("200: " + handle_http_status(200));
+    println("404: " + handle_http_status(404));
+    println("500: " + handle_http_status(500));
+    println("");
+    
+    // 测试6: 成绩等级
+    println("--- 成绩等级 ---");
+    println("分数95: " + get_grade(95));
+    println("分数75: " + get_grade(75));
+    println("分数55: " + get_grade(55));
+    println("");
+    
+    // 测试7: 嵌套match
+    println("--- 嵌套Match ---");
+    println("add 5: " + process_command("add", 5));
+    println("div 0: " + process_command("div", 0));
+    println("");
+    
+    // 测试8: 状态机
+    println("--- 状态机 ---");
+    let next_state = process_state(0, 1);
+    println("状态0, 输入1 -> 状态" + next_state);
+    println("");
+    
+    // 测试9: 字符串匹配
+    println("--- 字符串匹配 ---");
+    println(process_command_string("start"));
+    println(process_command_string("help"));
+    println(process_command_string("unknown"));
+    println("");
+    
+    // 测试10: 年龄分类
+    println("--- 年龄分类 ---");
+    println("年龄10: " + classify_age(10));
+    println("年龄25: " + classify_age(25));
+    println("年龄70: " + classify_age(70));
+    println("");
+    
+    println("=== 所有测试完成 ===");
+    return 0;
+}

@@ -1,0 +1,31 @@
+digraph AST {
+  node [shape=box, style=rounded];
+  rankdir=TB;
+  node0 [label="FuncDecl: main"];
+  node1 [label="Block"];
+  node0 -> node1;
+  node2 [label="VarDecl: x"];
+  node1 -> node2;
+  node3 [label="VarDecl: result"];
+  node1 -> node3;
+  node4 [label="ExprStmt"];
+  node1 -> node4;
+  node5 [label="Call"];
+  node4 -> node5;
+  node6 [label="Function: println"];
+  node5 -> node6;
+  node7 [label="Binary: +"];
+  node5 -> node7;
+  node8 [label="String: Factorial of "];
+  node7 -> node8;
+  node9 [label="Binary: +"];
+  node7 -> node9;
+  node10 [label="Id: x"];
+  node9 -> node10;
+  node11 [label="Binary: +"];
+  node9 -> node11;
+  node12 [label="String:  is "];
+  node11 -> node12;
+  node13 [label="Id: result"];
+  node11 -> node13;
+}

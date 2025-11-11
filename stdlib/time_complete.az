@@ -1,0 +1,510 @@
+// std.time - 时间处理模块
+// 版本: v1.0.0
+// 日期: 2025-10-30
+
+module std.time;
+
+import std.error.{Result, ParseError};
+import std.string;
+
+// ============================================================================
+// C标准库接口
+// ============================================================================
+
+extern "C" {
+    // 时间获取
+    fn time(t: *int) int;
+    fn clock() int;
+    fn gettimeofday(tv: *Timeval, tz: *void) int;
+    
+    // 时间转换
+    fn localtime(timer: *int) *Tm;
+    fn gmtime(timer: *int) *Tm;
+    fn mktime(tm: *Tm) int;
+    
+    // 时间格式化
+    fn strftime(s: *char, max: int, format: *char, tm: *Tm) int;
+    fn strptime(s: *char, format: *char, tm: *Tm) *char;
+    
+    // 睡眠
+    fn nanosleep(req: *Timespec, rem: *Timespec) int;
+}
+
+// 时间结构
+struct Timeval {
+    tv_sec: int,
+    tv_usec: int
+}
+
+struct Timespec {
+    tv_sec: int,
+    tv_nsec: int
+}
+
+struct Tm {
+    tm_sec: int,
+    tm_min: int,
+    tm_hour: int,
+    tm_mday: int,
+    tm_mon: int,
+    tm_year: int,
+    tm_wday: int,
+    tm_yday: int,
+    tm_isdst: int
+}
+
+// ============================================================================
+// 时间类型
+// ============================================================================
+
+/// 时间点
+pub struct Time {
+    seconds: int,
+    nanos: int
+}
+
+/// 时间间隔
+pub struct Duration {
+    seconds: int,
+    nanos: int
+}
+
+// ============================================================================
+// 时间创建
+// ============================================================================
+
+/// 获取当前时间
+pub fn now() Time {
+    var tv: Timeval;
+    gettimeofday(&tv, null);
+    
+    return Time {
+        seconds: tv.tv_sec,
+        nanos: tv.tv_usec * 1000
+    };
+}
+
+/// 获取Unix时间戳
+pub fn unix_timestamp() int {
+    return time(null);
+}
+
+/// 从Unix时间戳创建时间
+pub fn from_unix(seconds: int) Time {
+    return Time {
+        seconds: seconds,
+        nanos: 0
+    };
+}
+
+/// 从Unix时间戳创建时间（带纳秒）
+pub fn from_unix_nanos(seconds: int, nanos: int) Time {
+    return Time {
+        seconds: seconds,
+        nanos: nanos
+    };
+}
+
+// ============================================================================
+// Duration创建
+// ============================================================================
+
+/// 创建秒级Duration
+pub fn seconds(n: int) Duration {
+    return Duration {
+        seconds: n,
+        nanos: 0
+    };
+}
+
+/// 创建毫秒级Duration
+pub fn milliseconds(n: int) Duration {
+    return Duration {
+        seconds: n / 1000,
+        nanos: (n % 1000) * 1000000
+    };
+}
+
+/// 创建微秒级Duration
+pub fn microseconds(n: int) Duration {
+    return Duration {
+        seconds: n / 1000000,
+        nanos: (n % 1000000) * 1000
+    };
+}
+
+/// 创建纳秒级Duration
+pub fn nanoseconds(n: int) Duration {
+    return Duration {
+        seconds: n / 1000000000,
+        nanos: n % 1000000000
+    };
+}
+
+/// 创建分钟级Duration
+pub fn minutes(n: int) Duration {
+    return seconds(n * 60);
+}
+
+/// 创建小时级Duration
+pub fn hours(n: int) Duration {
+    return seconds(n * 3600);
+}
+
+/// 创建天级Duration
+pub fn days(n: int) Duration {
+    return seconds(n * 86400);
+}
+
+// ============================================================================
+// Time操作
+// ============================================================================
+
+/// 加上Duration
+pub fn (self: Time) add(d: Duration) Time {
+    var new_seconds = self.seconds + d.seconds;
+    var new_nanos = self.nanos + d.nanos;
+    
+    // 处理纳秒溢出
+    if (new_nanos >= 1000000000) {
+        new_seconds = new_seconds + 1;
+        new_nanos = new_nanos - 1000000000;
+    }
+    
+    return Time {
+        seconds: new_seconds,
+        nanos: new_nanos
+    };
+}
+
+/// 减去Duration
+pub fn (self: Time) sub(d: Duration) Time {
+    var new_seconds = self.seconds - d.seconds;
+    var new_nanos = self.nanos - d.nanos;
+    
+    // 处理纳秒下溢
+    if (new_nanos < 0) {
+        new_seconds = new_seconds - 1;
+        new_nanos = new_nanos + 1000000000;
+    }
+    
+    return Time {
+        seconds: new_seconds,
+        nanos: new_nanos
+    };
+}
+
+/// 计算时间差
+pub fn (self: Time) diff(other: Time) Duration {
+    var diff_seconds = self.seconds - other.seconds;
+    var diff_nanos = self.nanos - other.nanos;
+    
+    if (diff_nanos < 0) {
+        diff_seconds = diff_seconds - 1;
+        diff_nanos = diff_nanos + 1000000000;
+    }
+    
+    return Duration {
+        seconds: diff_seconds,
+        nanos: diff_nanos
+    };
+}
+
+/// 比较时间
+pub fn (self: Time) compare(other: Time) int {
+    if (self.seconds < other.seconds) return -1;
+    if (self.seconds > other.seconds) return 1;
+    if (self.nanos < other.nanos) return -1;
+    if (self.nanos > other.nanos) return 1;
+    return 0;
+}
+
+/// 检查是否在另一个时间之前
+pub fn (self: Time) before(other: Time) bool {
+    return self.compare(other) < 0;
+}
+
+/// 检查是否在另一个时间之后
+pub fn (self: Time) after(other: Time) bool {
+    return self.compare(other) > 0;
+}
+
+/// 检查是否相等
+pub fn (self: Time) equals(other: Time) bool {
+    return self.compare(other) == 0;
+}
+
+// ============================================================================
+// Duration操作
+// ============================================================================
+
+/// 转换为秒
+pub fn (self: Duration) as_seconds() int {
+    return self.seconds;
+}
+
+/// 转换为毫秒
+pub fn (self: Duration) as_millis() int {
+    return self.seconds * 1000 + self.nanos / 1000000;
+}
+
+/// 转换为微秒
+pub fn (self: Duration) as_micros() int {
+    return self.seconds * 1000000 + self.nanos / 1000;
+}
+
+/// 转换为纳秒
+pub fn (self: Duration) as_nanos() int {
+    return self.seconds * 1000000000 + self.nanos;
+}
+
+/// Duration加法
+pub fn (self: Duration) add_duration(other: Duration) Duration {
+    var new_seconds = self.seconds + other.seconds;
+    var new_nanos = self.nanos + other.nanos;
+    
+    if (new_nanos >= 1000000000) {
+        new_seconds = new_seconds + 1;
+        new_nanos = new_nanos - 1000000000;
+    }
+    
+    return Duration {
+        seconds: new_seconds,
+        nanos: new_nanos
+    };
+}
+
+/// Duration减法
+pub fn (self: Duration) sub_duration(other: Duration) Duration {
+    var new_seconds = self.seconds - other.seconds;
+    var new_nanos = self.nanos - other.nanos;
+    
+    if (new_nanos < 0) {
+        new_seconds = new_seconds - 1;
+        new_nanos = new_nanos + 1000000000;
+    }
+    
+    return Duration {
+        seconds: new_seconds,
+        nanos: new_nanos
+    };
+}
+
+/// Duration乘法
+pub fn (self: Duration) mul(n: int) Duration {
+    var new_seconds = self.seconds * n;
+    var new_nanos = self.nanos * n;
+    
+    // 处理纳秒溢出
+    new_seconds = new_seconds + new_nanos / 1000000000;
+    new_nanos = new_nanos % 1000000000;
+    
+    return Duration {
+        seconds: new_seconds,
+        nanos: new_nanos
+    };
+}
+
+/// Duration除法
+pub fn (self: Duration) div(n: int) Duration {
+    if (n == 0) {
+        return Duration { seconds: 0, nanos: 0 };
+    }
+    
+    let total_nanos = self.seconds * 1000000000 + self.nanos;
+    let result_nanos = total_nanos / n;
+    
+    return Duration {
+        seconds: result_nanos / 1000000000,
+        nanos: result_nanos % 1000000000
+    };
+}
+
+// ============================================================================
+// 时间格式化
+// ============================================================================
+
+/// 格式化时间
+pub fn (self: Time) format(fmt: string) string {
+    var tm_ptr = localtime(&self.seconds);
+    if (tm_ptr == null) {
+        return "";
+    }
+    
+    let buffer: [256]char;
+    strftime(&buffer[0], 256, fmt.as_ptr(), tm_ptr);
+    
+    return string_from_cstr(&buffer[0]);
+}
+
+/// 解析时间字符串
+pub fn parse(s: string, fmt: string) Result<Time, ParseError> {
+    var tm: Tm;
+    let result = strptime(s.as_ptr(), fmt.as_ptr(), &tm);
+    
+    if (result == null) {
+        return Result.Err(ParseError.InvalidFormat);
+    }
+    
+    let timestamp = mktime(&tm);
+    if (timestamp == -1) {
+        return Result.Err(ParseError.InvalidFormat);
+    }
+    
+    return Result.Ok(Time {
+        seconds: timestamp,
+        nanos: 0
+    });
+}
+
+/// 转换为ISO 8601格式
+pub fn (self: Time) to_iso8601() string {
+    return self.format("%Y-%m-%dT%H:%M:%S");
+}
+
+/// 转换为RFC 3339格式
+pub fn (self: Time) to_rfc3339() string {
+    return self.format("%Y-%m-%dT%H:%M:%SZ");
+}
+
+/// 转换为人类可读格式
+pub fn (self: Time) to_string() string {
+    return self.format("%Y-%m-%d %H:%M:%S");
+}
+
+// ============================================================================
+// 日期时间组件
+// ============================================================================
+
+/// 日期时间结构
+pub struct DateTime {
+    year: int,
+    month: int,
+    day: int,
+    hour: int,
+    minute: int,
+    second: int,
+    weekday: int
+}
+
+/// 转换为DateTime
+pub fn (self: Time) to_datetime() DateTime {
+    var tm_ptr = localtime(&self.seconds);
+    if (tm_ptr == null) {
+        return DateTime {
+            year: 1970,
+            month: 1,
+            day: 1,
+            hour: 0,
+            minute: 0,
+            second: 0,
+            weekday: 0
+        };
+    }
+    
+    let tm = *tm_ptr;
+    
+    return DateTime {
+        year: tm.tm_year + 1900,
+        month: tm.tm_mon + 1,
+        day: tm.tm_mday,
+        hour: tm.tm_hour,
+        minute: tm.tm_min,
+        second: tm.tm_sec,
+        weekday: tm.tm_wday
+    };
+}
+
+/// 从DateTime创建Time
+pub fn from_datetime(dt: DateTime) Time {
+    var tm: Tm;
+    tm.tm_year = dt.year - 1900;
+    tm.tm_mon = dt.month - 1;
+    tm.tm_mday = dt.day;
+    tm.tm_hour = dt.hour;
+    tm.tm_min = dt.minute;
+    tm.tm_sec = dt.second;
+    tm.tm_isdst = -1;
+    
+    let timestamp = mktime(&tm);
+    
+    return Time {
+        seconds: timestamp,
+        nanos: 0
+    };
+}
+
+// ============================================================================
+// 睡眠
+// ============================================================================
+
+/// 睡眠指定Duration
+pub fn sleep(d: Duration) void {
+    var req: Timespec;
+    req.tv_sec = d.seconds;
+    req.tv_nsec = d.nanos;
+    
+    nanosleep(&req, null);
+}
+
+/// 睡眠指定秒数
+pub fn sleep_secs(seconds: int) void {
+    sleep(seconds(seconds));
+}
+
+/// 睡眠指定毫秒数
+pub fn sleep_millis(ms: int) void {
+    sleep(milliseconds(ms));
+}
+
+// ============================================================================
+// 性能计时
+// ============================================================================
+
+/// 计时器
+pub struct Stopwatch {
+    start_time: Time,
+    running: bool
+}
+
+/// 创建并启动计时器
+pub fn stopwatch_start() Stopwatch {
+    return Stopwatch {
+        start_time: now(),
+        running: true
+    };
+}
+
+/// 停止计时器并返回经过的时间
+pub fn (self: *Stopwatch) stop() Duration {
+    if (!self.running) {
+        return Duration { seconds: 0, nanos: 0 };
+    }
+    
+    let end_time = now();
+    self.running = false;
+    
+    return end_time.diff(self.start_time);
+}
+
+/// 重置计时器
+pub fn (self: *Stopwatch) reset() void {
+    self.start_time = now();
+    self.running = true;
+}
+
+/// 获取经过的时间（不停止）
+pub fn (self: *Stopwatch) elapsed() Duration {
+    if (!self.running) {
+        return Duration { seconds: 0, nanos: 0 };
+    }
+    
+    let current_time = now();
+    return current_time.diff(self.start_time);
+}
+
+// ============================================================================
+// 辅助函数
+// ============================================================================
+
+extern fn string_from_cstr(cstr: *char) string;

@@ -1,0 +1,28 @@
+// std_test_runner.az - 标准库测试运行器
+module test.std_test_runner;
+
+import std.test;
+
+// 导入所有标准库测试
+import test.std_collections;
+import test.std_math;
+import test.std_string;
+import test.std_time;
+import test.std_io;
+import test.std_fs;
+import test.std_os;
+
+fn main() void {
+    println("运行标准库测试...");
+    
+    // 运行所有测试
+    test.std_collections.main();
+    test.std_math.main();
+    test.std_string.main();
+    test.std_time.main();
+    test.std_io.main();
+    test.std_fs.main();
+    test.std_os.main();
+    
+    println("所有标准库测试完成!");
+}

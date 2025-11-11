@@ -1,0 +1,114 @@
+// AZ语言模块系统示例
+// 展示无头文件的模块化设计
+
+module examples.module_example;
+
+import std.io;
+import std.collections;
+
+// ============================================================================
+// 公开结构体 - 可以被其他模块使用
+// ============================================================================
+
+pub struct Vec3 {
+    pub x: float,
+    pub y: float,
+    pub z: float
+}
+
+pub struct Point {
+    pub x: int,
+    pub y: int
+}
+
+// ============================================================================
+// 公开函数 - 模块的公开API
+// ============================================================================
+
+pub fn vec3_new(x: float, y: float, z: float) Vec3 {
+    return Vec3 { x: x, y: y, z: z };
+}
+
+pub fn vec3_length(v: Vec3) float {
+    return sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+}
+
+pub fn vec3_dot(a: Vec3, b: Vec3) float {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+pub fn vec3_add(a: Vec3, b: Vec3) Vec3 {
+    return Vec3 {
+        x: a.x + b.x,
+        y: a.y + b.y,
+        z: a.z + b.z
+    };
+}
+
+// ============================================================================
+// 私有函数 - 只能在本模块内使用
+// ============================================================================
+
+fn internal_helper(x: float) float {
+    return x * x;
+}
+
+fn validate_vector(v: Vec3) bool {
+    return v.x >= 0.0 && v.y >= 0.0 && v.z >= 0.0;
+}
+
+// ============================================================================
+// 数组操作示例
+// ============================================================================
+
+pub fn sum_array(arr: []int, len: int) int {
+    var sum = 0;
+    for (var i = 0; i < len; i = i + 1) {
+        sum = sum + arr[i];
+    }
+    return sum;
+}
+
+pub fn find_max(arr: []int, len: int) int {
+    if (len == 0) {
+        return 0;
+    }
+    
+    var max = arr[0];
+    for (var i = 1; i < len; i = i + 1) {
+        if (arr[i] > max) {
+            max = arr[i];
+        }
+    }
+    return max;
+}
+
+// ============================================================================
+// 主函数 - 演示模块功能
+// ============================================================================
+
+pub fn main() int {
+    println("=== AZ模块系统示例 ===");
+    
+    // 创建向量
+    let v1 = vec3_new(1.0, 2.0, 3.0);
+    let v2 = vec3_new(4.0, 5.0, 6.0);
+    
+    // 向量运算
+    let dot_product = vec3_dot(v1, v2);
+    println("点积: " + dot_product);
+    
+    let v3 = vec3_add(v1, v2);
+    println("向量和: (" + v3.x + ", " + v3.y + ", " + v3.z + ")");
+    
+    // 数组操作
+    let numbers = [1, 2, 3, 4, 5];
+    let total = sum_array(numbers, 5);
+    println("数组总和: " + total);
+    
+    let maximum = find_max(numbers, 5);
+    println("最大值: " + maximum);
+    
+    println("=== 模块示例完成 ===");
+    return 0;
+}

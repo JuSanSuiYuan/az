@@ -1,0 +1,47 @@
+// std_io_test.az - 输入输出标准库测试
+module test.std_io;
+
+import std.test;
+import std.io;
+import std.fs;
+
+fn test_file_operations() void {
+    let test_file = "test_io.tmp";
+    
+    // 测试写入文件
+    let write_result = io.write_file(test_file, "Hello, AZ!");
+    test.assert(!write_result.is_err(), "写入文件应该成功");
+
+    // 测试读取文件
+    let read_result = io.read_file(test_file);
+    test.assert(!read_result.is_err(), "读取文件应该成功");
+    test.assert(string.equals(read_result.unwrap(), "Hello, AZ!"), "读取的内容应该匹配");
+
+    // 测试文件存在检查
+    test.assert(io.file_exists(test_file), "文件应该存在");
+
+    // 测试文件大小
+    let size_result = io.file_size(test_file);
+    test.assert(!size_result.is_err(), "获取文件大小应该成功");
+    test.assert(size_result.unwrap() > 0, "文件大小应该大于0");
+
+    // 测试复制文件
+    let copy_result = io.copy_file(test_file, "test_io_copy.tmp");
+    test.assert(!copy_result.is_err(), "复制文件应该成功");
+
+    // 清理测试文件
+    fs.remove_file(test_file);
+    fs.remove_file("test_io_copy.tmp");
+}
+
+fn test_string_conversion() void {
+    // 测试数字转换
+    test.assert(io.read_int("42") == 42, "read_int应该正确转换字符串到整数");
+    test.assert(io.read_float("3.14") == 3.14, "read_float应该正确转换字符串到浮点数");
+}
+
+fn main() void {
+    test_file_operations();
+    test_string_conversion();
+    test.summary();
+}

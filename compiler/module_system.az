@@ -1,0 +1,113 @@
+// AZ语言模块系统实现
+// 这个文件展示了AZ的模块化设计
+
+module compiler.module_system;
+
+import std.io;
+import std.collections;
+
+// 模块信息结构
+pub struct Module {
+    pub name: string,
+    pub path: string,
+    pub dependencies: []string,
+    pub exports: []Symbol,
+    is_compiled: bool
+}
+
+// 符号信息
+pub struct Symbol {
+    pub name: string,
+    pub kind: SymbolKind,
+    pub visibility: Visibility,
+    pub type_info: string
+}
+
+// 符号类型
+pub enum SymbolKind {
+    Function,
+    Struct,
+    Enum,
+    Variable,
+    Constant
+}
+
+// 可见性
+pub enum Visibility {
+    Public,    // pub - 公开
+    Private    // 默认 - 私有
+}
+
+// 模块管理器
+pub struct ModuleManager {
+    modules: []Module,
+    module_map: Map<string, Module>
+}
+
+// 创建模块管理器
+pub fn new_module_manager() ModuleManager {
+    return ModuleManager {
+        modules: [],
+        module_map: Map.new()
+    };
+}
+
+// 注册模块
+pub fn register_module(self: *ModuleManager, module: Module) void {
+    self.modules.push(module);
+    self.module_map.insert(module.name, module);
+}
+
+// 解析模块依赖
+pub fn resolve_dependencies(self: *ModuleManager) Result<void, string> {
+    // 构建依赖图
+    let graph = build_dependency_graph(self);
+    
+    // 检测循环依赖
+    if (has_cycle(graph)) {
+        return Result.Err("检测到循环依赖");
+    }
+    
+    // 拓扑排序
+    let sorted = topological_sort(graph);
+    
+    return Result.Ok(());
+}
+
+// 编译模块
+pub fn compile_module(self: *ModuleManager, name: string) Result<void, string> {
+    let module = self.module_map.get(name);
+    if (module == null) {
+        return Result.Err("模块不存在: " + name);
+    }
+    
+    // 先编译依赖
+    for (dep in module.dependencies) {
+        let result = self.compile_module(dep);
+        if (result.is_err()) {
+            return result;
+        }
+    }
+    
+    // 编译当前模块
+    println("编译模块: " + name);
+    module.is_compiled = true;
+    
+    return Result.Ok(());
+}
+
+// 私有辅助函数
+fn build_dependency_graph(manager: *ModuleManager) Graph {
+    // 实现依赖图构建
+    return Graph.new();
+}
+
+fn has_cycle(graph: Graph) bool {
+    // 实现循环检测
+    return false;
+}
+
+fn topological_sort(graph: Graph) []string {
+    // 实现拓扑排序
+    return [];
+}

@@ -1,0 +1,25 @@
+// AOT编译测试程序
+
+import std.io;
+import std.time;
+
+fn fibonacci(n: int) int {
+    if (n <= 1) {
+        return n;
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+fn main() int {
+    let start_time = time.now();
+    
+    // 计算斐波那契数列
+    let result = fibonacci(35);
+    
+    let end_time = time.now();
+    
+    println("斐波那契数列第35项: {}", result);
+    println("计算耗时: {} 毫秒", (end_time.seconds - start_time.seconds) * 1000 + (end_time.nanos - start_time.nanos) / 1000000);
+    
+    return 0;
+}

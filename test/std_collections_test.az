@@ -1,0 +1,95 @@
+// std_collections_test.az - 集合类型标准库测试
+module test.std_collections;
+
+import std.test;
+import std.collections;
+
+fn test_vec() void {
+    // 测试Vec基本功能
+    let vec = vec_new<int>();
+    test.assert(vec_is_empty(vec), "新创建的Vec应该为空");
+    test.assert(vec_len(vec) == 0, "新创建的Vec长度应该为0");
+
+    // 测试添加元素
+    vec_push(vec, 1);
+    vec_push(vec, 2);
+    vec_push(vec, 3);
+    test.assert(vec_len(vec) == 3, "添加3个元素后Vec长度应该为3");
+
+    // 测试获取元素
+    test.assert(vec_get(vec, 0) == 1, "第一个元素应该是1");
+    test.assert(vec_get(vec, 1) == 2, "第二个元素应该是2");
+    test.assert(vec_get(vec, 2) == 3, "第三个元素应该是3");
+
+    // 测试弹出元素
+    let popped = vec_pop(vec);
+    test.assert(popped.? == 3, "弹出的元素应该是3");
+    test.assert(vec_len(vec) == 2, "弹出元素后Vec长度应该为2");
+
+    vec_free(vec);
+}
+
+fn test_hashmap() void {
+    // 测试HashMap基本功能
+    let map = map_new<string, int>();
+    test.assert(map_is_empty(map), "新创建的HashMap应该为空");
+    test.assert(map_len(map) == 0, "新创建的HashMap长度应该为0");
+
+    // 测试插入元素
+    map_insert(map, "one", 1);
+    map_insert(map, "two", 2);
+    map_insert(map, "three", 3);
+    test.assert(map_len(map) == 3, "插入3个元素后HashMap长度应该为3");
+
+    // 测试获取元素
+    let val1 = map_get(map, "one");
+    test.assert(val1.? == 1, "键'one'对应的值应该是1");
+
+    let val2 = map_get(map, "two");
+    test.assert(val2.? == 2, "键'two'对应的值应该是2");
+
+    let val3 = map_get(map, "three");
+    test.assert(val3.? == 3, "键'three'对应的值应该是3");
+
+    // 测试包含键
+    test.assert(map_contains(map, "one"), "HashMap应该包含键'one'");
+    test.assert(!map_contains(map, "four"), "HashMap不应该包含键'four'");
+
+    // 测试删除元素
+    let removed = map_remove(map, "two");
+    test.assert(removed.? == 2, "删除的元素值应该是2");
+    test.assert(map_len(map) == 2, "删除元素后HashMap长度应该为2");
+    test.assert(!map_contains(map, "two"), "HashMap不应该再包含键'two'");
+}
+
+fn test_hashset() void {
+    // 测试HashSet基本功能
+    let set = set_new<int>();
+    test.assert(set_is_empty(set), "新创建的HashSet应该为空");
+    test.assert(set_len(set) == 0, "新创建的HashSet长度应该为0");
+
+    // 测试插入元素
+    set_insert(set, 1);
+    set_insert(set, 2);
+    set_insert(set, 3);
+    test.assert(set_len(set) == 3, "插入3个元素后HashSet长度应该为3");
+
+    // 测试包含元素
+    test.assert(set_contains(set, 1), "HashSet应该包含元素1");
+    test.assert(set_contains(set, 2), "HashSet应该包含元素2");
+    test.assert(set_contains(set, 3), "HashSet应该包含元素3");
+    test.assert(!set_contains(set, 4), "HashSet不应该包含元素4");
+
+    // 测试删除元素
+    let removed = set_remove(set, 2);
+    test.assert(removed, "删除元素2应该成功");
+    test.assert(set_len(set) == 2, "删除元素后HashSet长度应该为2");
+    test.assert(!set_contains(set, 2), "HashSet不应该再包含元素2");
+}
+
+fn main() void {
+    test_vec();
+    test_hashmap();
+    test_hashset();
+    test.summary();
+}

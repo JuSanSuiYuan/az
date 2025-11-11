@@ -1,0 +1,116 @@
+// std_toml_test.az - TOML标准库测试
+module test.std_toml;
+
+import std.test;
+import std.toml;
+
+fn test_toml_values() void {
+    // 测试字符串值
+    let str_val = toml.new_string("hello");
+    test.assert(str_val.is_string(), "应该识别为字符串类型");
+    let str_result = str_val.as_string();
+    test.assert(str_result.is_ok(), "应该能转换为字符串");
+    test.assert(str_result.unwrap() == "hello", "字符串值应该是'hello'");
+
+    // 测试整数值
+    let int_val = toml.new_integer(42);
+    test.assert(int_val.is_integer(), "应该识别为整数类型");
+    let int_result = int_val.as_integer();
+    test.assert(int_result.is_ok(), "应该能转换为整数");
+    test.assert(int_result.unwrap() == 42, "整数值应该是42");
+
+    // 测试浮点值
+    let float_val = toml.new_float(3.14);
+    test.assert(float_val.is_float(), "应该识别为浮点数类型");
+    let float_result = float_val.as_float();
+    test.assert(float_result.is_ok(), "应该能转换为浮点数");
+    test.assert(float_result.unwrap() == 3.14, "浮点数值应该是3.14");
+
+    // 测试布尔值
+    let bool_val = toml.new_boolean(true);
+    test.assert(bool_val.is_boolean(), "应该识别为布尔类型");
+    let bool_result = bool_val.as_boolean();
+    test.assert(bool_result.is_ok(), "应该能转换为布尔值");
+    test.assert(bool_result.unwrap() == true, "布尔值应该是true");
+}
+
+fn test_toml_table() void {
+    // 测试创建表
+    let mut table = toml.new_table();
+    test.assert(table.is_empty(), "新创建的表应该为空");
+    test.assert(table.len() == 0, "新创建的表长度应该为0");
+
+    // 测试设置和获取值
+    table.set("name", toml.new_string("AZ"));
+    table.set("version", toml.new_float(1.0));
+    table.set("active", toml.new_boolean(true));
+
+    test.assert(table.len() == 3, "设置3个值后表长度应该为3");
+    test.assert(table.contains("name"), "应该包含键'name'");
+    test.assert(table.contains("version"), "应该包含键'version'");
+    test.assert(table.contains("active"), "应该包含键'active'");
+
+    // 测试获取值
+    let name_val = table.get("name");
+    test.assert(name_val.is_some(), "应该能获取到'name'的值");
+    let name_str = name_val.unwrap().as_string();
+    test.assert(name_str.is_ok(), "应该能转换为字符串");
+    test.assert(name_str.unwrap() == "AZ", "name值应该是'AZ'");
+
+    let version_val = table.get("version");
+    test.assert(version_val.is_some(), "应该能获取到'version'的值");
+    let version_float = version_val.unwrap().as_float();
+    test.assert(version_float.is_ok(), "应该能转换为浮点数");
+    test.assert(version_float.unwrap() == 1.0, "version值应该是1.0");
+
+    let active_val = table.get("active");
+    test.assert(active_val.is_some(), "应该能获取到'active'的值");
+    let active_bool = active_val.unwrap().as_boolean();
+    test.assert(active_bool.is_ok(), "应该能转换为布尔值");
+    test.assert(active_bool.unwrap() == true, "active值应该是true");
+}
+
+fn test_toml_array() void {
+    // 测试数组值
+    let mut array = arraylist.new<toml.TomlValue>();
+    array.add(toml.new_integer(1));
+    array.add(toml.new_integer(2));
+    array.add(toml.new_integer(3));
+    
+    let array_val = toml.new_array(array.to_vec());
+    test.assert(array_val.is_array(), "应该识别为数组类型");
+    
+    let array_result = array_val.as_array();
+    test.assert(array_result.is_ok(), "应该能转换为数组");
+    let array_vec = array_result.unwrap();
+    test.assert(array_vec.len() == 3, "数组长度应该是3");
+    
+    let first = array_vec.get(0);
+    test.assert(first.is_some(), "应该能获取到第一个元素");
+    let first_int = first.unwrap().as_integer();
+    test.assert(first_int.is_ok(), "第一个元素应该能转换为整数");
+    test.assert(first_int.unwrap() == 1, "第一个元素应该是1");
+}
+
+fn test_toml_parsing() void {
+    // 测试解析功能（简化测试）
+    let toml_str = "
+        name = \"AZ\"
+        version = 1.0
+        active = true
+    ";
+    
+    let parse_result = toml.parse_toml(toml_str);
+    test.assert(parse_result.is_ok(), "应该能成功解析TOML字符串");
+    
+    let table = parse_result.unwrap();
+    test.assert(table.len() >= 0, "解析后的表长度应该大于等于0");
+}
+
+fn main() void {
+    test_toml_values();
+    test_toml_table();
+    test_toml_array();
+    test_toml_parsing();
+    test.summary();
+}

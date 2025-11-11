@@ -1,0 +1,577 @@
+// std.string - 字符串操作模块
+module std.string;
+
+// ============================================================================
+// 基础字符串操作
+// ============================================================================
+
+// 连接两个字符串
+extern fn az_string_concat(a: string, b: string) string;
+
+// 获取字符串长度
+extern fn az_string_length(s: string) int;
+
+// 获取子字符串
+extern fn az_string_substring(s: string, start: int, end: int) string;
+
+// 比较字符串
+extern fn az_string_equals(a: string, b: string) bool;
+
+// 转大写
+extern fn az_string_to_upper(s: string) string;
+
+// 转小写
+extern fn az_string_to_lower(s: string) string;
+
+// ============================================================================
+// 高级字符串操作
+// ============================================================================
+
+// 字符串结构体
+struct String {
+    data: ptr,
+    len: int,
+    capacity: int,
+}
+
+// 创建新字符串
+fn new() String {
+    return String{
+        data: null,
+        len: 0,
+        capacity: 0,
+    };
+}
+
+// 从C字符串创建
+fn from_cstr(s: string) String {
+    return String{
+        data: s,
+        len: az_string_length(s),
+        capacity: az_string_length(s),
+    };
+}
+
+// 连接字符串（方法）
+fn concat(self: String, other: string) String {
+    let result = az_string_concat(self.data, other);
+    return from_cstr(result);
+}
+
+// 获取长度
+fn len(self: String) int {
+    return self.len;
+}
+
+// 是否为空
+fn is_empty(self: String) bool {
+    return self.len == 0;
+}
+
+// 转大写
+fn to_upper(self: String) String {
+    let result = az_string_to_upper(self.data);
+    return from_cstr(result);
+}
+
+// 转小写
+fn to_lower(self: String) String {
+    let result = az_string_to_lower(self.data);
+    return from_cstr(result);
+}
+
+// 分割字符串
+fn split(s: string, delimiter: string) []string {
+    // 如果分隔符为空，返回包含整个字符串的数组
+    if (az_string_length(delimiter) == 0) {
+        let result: []string = [s];
+        return result;
+    }
+    
+    let result: []string = [];
+    let s_len = az_string_length(s);
+    let delim_len = az_string_length(delimiter);
+    
+    var start = 0;
+    var i = 0;
+    
+    // 查找所有分隔符出现的位置
+    while (i <= s_len - delim_len) {
+        // 检查当前位置是否匹配分隔符
+        let substr = az_string_substring(s, i, i + delim_len);
+        if (az_string_equals(substr, delimiter)) {
+            // 添加分隔符前的部分
+            if (i > start) {
+                let part = az_string_substring(s, start, i);
+                result = result + [part];
+            } else if (i == start) {
+                // 添加空字符串
+                result = result + [""];
+            }
+            i = i + delim_len;
+            start = i;
+        } else {
+            i = i + 1;
+        }
+    }
+    
+    // 添加最后一部分
+    if (start < s_len) {
+        let part = az_string_substring(s, start, s_len);
+        result = result + [part];
+    } else if (start == s_len) {
+        // 添加空字符串
+        result = result + [""];
+    }
+    
+    return result;
+}
+
+// 去除空白
+fn trim(s: string) string {
+    let len = az_string_length(s);
+    if (len == 0) {
+        return s;
+    }
+    
+    var start = 0;
+    var end = len - 1;
+    
+    // 从左边查找第一个非空白字符
+    while (start < len && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r')) {
+        start = start + 1;
+    }
+    
+    // 从右边查找第一个非空白字符
+    while (end >= start && (s[end] == ' ' || s[end] == '\t' || s[end] == '\n' || s[end] == '\r')) {
+        end = end - 1;
+    }
+    
+    // 如果全是空白字符，返回空字符串
+    if (start > end) {
+        return "";
+    }
+    
+    return az_string_substring(s, start, end + 1);
+}
+
+// 替换字符串
+fn replace(s: string, old: string, new: string) string {
+    if (az_string_length(old) == 0) {
+        return s;
+    }
+    
+    let parts = split(s, old);
+    if (parts.len() <= 1) {
+        return s;
+    }
+    
+    var result = parts[0];
+    for (var i = 1; i < parts.len(); i = i + 1) {
+        result = az_string_concat(result, new);
+        result = az_string_concat(result, parts[i]);
+    }
+    
+    return result;
+}
+
+// 查找子字符串
+fn find(s: string, sub: string) int {
+    let s_len = az_string_length(s);
+    let sub_len = az_string_length(sub);
+    
+    if (sub_len == 0) {
+        return 0;
+    }
+    
+    if (sub_len > s_len) {
+        return -1;
+    }
+    
+    // 遍历字符串查找子字符串
+    for (var i = 0; i <= s_len - sub_len; i = i + 1) {
+        let substr = az_string_substring(s, i, i + sub_len);
+        if (az_string_equals(substr, sub)) {
+            return i;
+        }
+    }
+    
+    return -1;
+}
+
+// 是否包含子字符串
+fn contains(s: string, sub: string) bool {
+    return find(s, sub) != -1;
+}
+
+// 是否以某字符串开头
+fn starts_with(s: string, prefix: string) bool {
+    let prefix_len = az_string_length(prefix);
+    if (prefix_len == 0) {
+        return true;
+    }
+    
+    let s_len = az_string_length(s);
+    if (prefix_len > s_len) {
+        return false;
+    }
+    
+    let substr = az_string_substring(s, 0, prefix_len);
+    return az_string_equals(substr, prefix);
+}
+
+// 是否以某字符串结尾
+fn ends_with(s: string, suffix: string) bool {
+    let suffix_len = az_string_length(suffix);
+    if (suffix_len == 0) {
+        return true;
+    }
+    
+    let s_len = az_string_length(s);
+    if (suffix_len > s_len) {
+        return false;
+    }
+    
+    let substr = az_string_substring(s, s_len - suffix_len, s_len);
+    return az_string_equals(substr, suffix);
+}
+
+// 重复字符串
+fn repeat(s: string, count: int) string {
+    if (count <= 0) {
+        return "";
+    }
+    
+    if (count == 1) {
+        return s;
+    }
+    
+    var result = "";
+    for (var i = 0; i < count; i = i + 1) {
+        result = az_string_concat(result, s);
+    }
+    
+    return result;
+}
+
+// 反转字符串
+fn reverse(s: string) string {
+    let len = az_string_length(s);
+    if (len <= 1) {
+        return s;
+    }
+    
+    var result = "";
+    for (var i = len - 1; i >= 0; i = i - 1) {
+        // 创建单字符字符串并连接
+        let char_str = az_string_substring(s, i, i + 1);
+        result = az_string_concat(result, char_str);
+    }
+    
+    return result;
+}
+
+// 整数转字符串
+extern fn az_string_from_int(n: int) string;
+
+// 字符串转整数
+extern fn az_string_to_int(s: string) int;
+
+// 浮点数转字符串
+extern fn az_string_from_float(f: float) string;
+
+// 字符串转浮点数
+extern fn az_string_to_float(s: string) float;
+
+// 包装函数
+fn from_int(n: int) string {
+    return az_string_from_int(n);
+}
+
+fn to_int(s: string) int {
+    return az_string_to_int(s);
+}
+
+fn from_float(f: float) string {
+    return az_string_from_float(f);
+}
+
+fn to_float(s: string) float {
+    return az_string_to_float(s);
+}
+
+// 字符串比较函数
+fn equals(a: string, b: string) bool {
+    return az_string_equals(a, b);
+}
+
+// ============================================================================
+// 新增功能
+// ============================================================================
+
+// 字符串转大写
+fn to_upper_str(s: string) string {
+    return az_string_to_upper(s);
+}
+
+// 字符串转小写
+fn to_lower_str(s: string) string {
+    return az_string_to_lower(s);
+}
+
+// 获取子字符串
+fn substring(s: string, start: int, end: int) string {
+    return az_string_substring(s, start, end);
+}
+
+// 连接多个字符串
+fn join(parts: []string, separator: string) string {
+    let len = parts.len();
+    if (len == 0) {
+        return "";
+    }
+    
+    if (len == 1) {
+        return parts[0];
+    }
+    
+    var result = parts[0];
+    for (var i = 1; i < len; i = i + 1) {
+        result = az_string_concat(result, separator);
+        result = az_string_concat(result, parts[i]);
+    }
+    
+    return result;
+}
+
+// 按行分割
+fn lines(s: string) []string {
+    return split(s, "\n");
+}
+
+// 去除左侧空白
+fn trim_left(s: string) string {
+    let len = az_string_length(s);
+    if (len == 0) {
+        return s;
+    }
+    
+    var start = 0;
+    
+    // 从左边查找第一个非空白字符
+    while (start < len && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r')) {
+        start = start + 1;
+    }
+    
+    // 如果全是空白字符，返回空字符串
+    if (start >= len) {
+        return "";
+    }
+    
+    return az_string_substring(s, start, len);
+}
+
+// 去除右侧空白
+fn trim_right(s: string) string {
+    let len = az_string_length(s);
+    if (len == 0) {
+        return s;
+    }
+    
+    var end = len - 1;
+    
+    // 从右边查找第一个非空白字符
+    while (end >= 0 && (s[end] == ' ' || s[end] == '\t' || s[end] == '\n' || s[end] == '\r')) {
+        end = end - 1;
+    }
+    
+    // 如果全是空白字符，返回空字符串
+    if (end < 0) {
+        return "";
+    }
+    
+    return az_string_substring(s, 0, end + 1);
+}
+
+// 检查是否为数字
+fn is_numeric(s: string) bool {
+    let len = az_string_length(s);
+    if (len == 0) {
+        return false;
+    }
+    
+    var i = 0;
+    // 检查可选的符号
+    if (s[0] == '+' || s[0] == '-') {
+        if (len == 1) {
+            return false;  // 只有符号
+        }
+        i = 1;
+    }
+    
+    var has_digits = false;
+    while (i < len) {
+        if (s[i] >= '0' && s[i] <= '9') {
+            has_digits = true;
+        } else {
+            return false;
+        }
+        i = i + 1;
+    }
+    
+    return has_digits;
+}
+
+// 检查是否为字母
+fn is_alpha(s: string) bool {
+    let len = az_string_length(s);
+    if (len == 0) {
+        return false;
+    }
+    
+    for (var i = 0; i < len; i = i + 1) {
+        let c = s[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+// 检查是否为字母数字
+fn is_alphanumeric(s: string) bool {
+    let len = az_string_length(s);
+    if (len == 0) {
+        return false;
+    }
+    
+    for (var i = 0; i < len; i = i + 1) {
+        let c = s[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+// 检查是否为空白
+fn is_whitespace(s: string) bool {
+    let len = az_string_length(s);
+    if (len == 0) {
+        return true;  // 空字符串视为空白
+    }
+    
+    for (var i = 0; i < len; i = i + 1) {
+        let c = s[i];
+        if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r')) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+// 左对齐填充
+fn pad_left(s: string, width: int, fill: char) string {
+    let len = az_string_length(s);
+    if (len >= width) {
+        return s;
+    }
+    
+    let padding_len = width - len;
+    var padding = "";
+    for (var i = 0; i < padding_len; i = i + 1) {
+        // 创建单字符字符串并连接
+        let char_str = az_string_substring(fill as string, 0, 1);
+        padding = az_string_concat(padding, char_str);
+    }
+    
+    return az_string_concat(padding, s);
+}
+
+// 右对齐填充
+fn pad_right(s: string, width: int, fill: char) string {
+    let len = az_string_length(s);
+    if (len >= width) {
+        return s;
+    }
+    
+    let padding_len = width - len;
+    var padding = "";
+    for (var i = 0; i < padding_len; i = i + 1) {
+        // 创建单字符字符串并连接
+        let char_str = az_string_substring(fill as string, 0, 1);
+        padding = az_string_concat(padding, char_str);
+    }
+    
+    return az_string_concat(s, padding);
+}
+
+// 居中对齐
+fn center(s: string, width: int, fill: char) string {
+    let len = az_string_length(s);
+    if (len >= width) {
+        return s;
+    }
+    
+    let total_padding = width - len;
+    let left_padding = total_padding / 2;
+    let right_padding = total_padding - left_padding;
+    
+    var left_pad = "";
+    for (var i = 0; i < left_padding; i = i + 1) {
+        let char_str = az_string_substring(fill as string, 0, 1);
+        left_pad = az_string_concat(left_pad, char_str);
+    }
+    
+    var right_pad = "";
+    for (var i = 0; i < right_padding; i = i + 1) {
+        let char_str = az_string_substring(fill as string, 0, 1);
+        right_pad = az_string_concat(right_pad, char_str);
+    }
+    
+    let result = az_string_concat(left_pad, s);
+    return az_string_concat(result, right_pad);
+}
+
+// 反转字符串
+fn reverse_str(s: string) string {
+    return reverse(s);
+}
+
+// 统计字符出现次数
+fn count_char(s: string, c: char) int {
+    let len = az_string_length(s);
+    var count = 0;
+    
+    for (var i = 0; i < len; i = i + 1) {
+        if (s[i] == c) {
+            count = count + 1;
+        }
+    }
+    
+    return count;
+}
+
+// 统计子字符串出现次数
+fn count_substring(s: string, sub: string) int {
+    if (az_string_length(sub) == 0) {
+        return 0;
+    }
+    
+    var count = 0;
+    var pos = 0;
+    
+    while (true) {
+        let found = find(az_string_substring(s, pos, az_string_length(s)), sub);
+        if (found == -1) {
+            break;
+        }
+        count = count + 1;
+        pos = pos + found + az_string_length(sub);
+    }
+    
+    return count;
+}

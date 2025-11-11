@@ -1,0 +1,387 @@
+// std.actor.virtual - Actor虚拟化模块
+// 提供类似Microsoft Orleans的虚拟Actor模型实现
+module std.actor.virtual;
+
+import std.actor.{ActorId, Actor, ActorRef, ActorSystem, Result, Error, ActorError, new_actor_id, actor_id_to_string, actor_id_equals};
+import std.actor.runtime.{RuntimeManager, ActorInstance, get_or_create_actor, activate_actor_runtime, send_message_runtime};
+import std.actor.state.{ActorStateManager, ActorState};
+import std.actor.lifecycle::{LifecycleManager, ActorLifecyclePhase, ActorFactory};
+import std.actor.messaging.{MessageSender, MessageEnvelope};
+import std.collections.{HashMap, Vec, Queue};
+import std.time;
+import std.mem;
+import std.string;
+
+// ============================================================================
+// 虚拟Actor相关类型定义
+// ============================================================================
+
+// 虚拟Actor引用
+struct VirtualActorRef<T: Actor> {
+    actor_id: ActorId,
+    actor_type: string,
+    system: *VirtualActorSystem,
+}
+
+// 虚拟Actor类型注册信息
+struct ActorTypeRegistration<T: Actor> {
+    type_name: string,
+    factory: *ActorFactory<T>,
+}
+
+// 虚拟Actor激活策略
+enum ActivationStrategy {
+    OnDemand,        // 按需激活
+    Preload,         // 预加载
+    LazyActivation,  // 惰性激活
+}
+
+// 虚拟Actor配置
+struct VirtualActorConfig {
+    activation_strategy: ActivationStrategy,
+    activation_timeout_ms: int,
+    idle_timeout_ms: int,
+    max_concurrent_actors: int,
+    auto_cleanup: bool,
+    cleanup_interval_ms: int,
+}
+
+// ============================================================================
+// 虚拟Actor系统
+// ============================================================================
+
+struct VirtualActorSystem {
+    // 基础Actor系统
+    actor_system: ActorSystem,
+    
+    // 运行时管理器
+    runtime_manager: RuntimeManager,
+    
+    // 状态管理器
+    state_manager: ActorStateManager,
+    
+    // 生命周期管理器
+    lifecycle_manager: LifecycleManager,
+    
+    // 消息发送器
+    message_sender: MessageSender,
+    
+    // 虚拟Actor类型注册表
+    type_registrations: HashMap<string, *any>, // 实际类型为ActorTypeRegistration<T>
+    
+    // 激活的虚拟Actor映射
+    active_virtual_actors: HashMap<ActorId, *any>, // 实际类型为T: Actor
+    
+    // 配置
+    config: VirtualActorConfig,
+    
+    // 统计信息
+    stats: VirtualActorStats,
+}
+
+// 虚拟Actor统计信息
+struct VirtualActorStats {
+    total_virtual_actors: int,
+    active_virtual_actors: int,
+    created_virtual_actors: int,
+    terminated_virtual_actors: int,
+    activation_requests: int,
+    message_requests: int,
+    activation_cache_hits: int,
+    activation_cache_misses: int,
+}
+
+// ============================================================================
+// 虚拟Actor系统实现
+// ============================================================================
+
+// 创建默认虚拟Actor配置
+fn default_virtual_actor_config() VirtualActorConfig {
+    return VirtualActorConfig {
+        activation_strategy: ActivationStrategy.OnDemand,
+        activation_timeout_ms: 30000,     // 30秒
+        idle_timeout_ms: 300000,          // 5分钟
+        max_concurrent_actors: 10000,     // 最大10000个并发Actor
+        auto_cleanup: true,               // 自动清理
+        cleanup_interval_ms: 60000,       // 1分钟清理间隔
+    };
+}
+
+// 创建虚拟Actor系统
+fn new_virtual_actor_system(config: VirtualActorConfig) Result<VirtualActorSystem, Error> {
+    // 创建基础Actor系统
+    let actor_system_config = default_actor_system_config();
+    let actor_system = new_system(actor_system_config);
+    
+    // 创建运行时管理器
+    let runtime_manager = new_runtime_manager(&actor_system);
+    
+    // 创建状态管理器
+    let (max_states, timeout_ms) = default_state_manager_config();
+    let state_manager = new_actor_state_manager(max_states, timeout_ms);
+    
+    // 创建生命周期管理器
+    let lifecycle_config = default_lifecycle_config();
+    let lifecycle_manager = new_lifecycle_manager(&runtime_manager, &state_manager, lifecycle_config);
+    
+    // 创建消息队列管理器和发送器
+    let queue_manager = new_message_queue_manager(null); // 简化实现，不使用路由器
+    let message_sender = new_message_sender(&runtime_manager, &queue_manager);
+    
+    return Result.Ok(VirtualActorSystem {
+        actor_system: actor_system,
+        runtime_manager: runtime_manager,
+        state_manager: state_manager,
+        lifecycle_manager: lifecycle_manager,
+        message_sender: message_sender,
+        type_registrations: HashMap.new(),
+        active_virtual_actors: HashMap.new(),
+        config: config,
+        stats: VirtualActorStats {
+            total_virtual_actors: 0,
+            active_virtual_actors: 0,
+            created_virtual_actors: 0,
+            terminated_virtual_actors: 0,
+            activation_requests: 0,
+            message_requests: 0,
+            activation_cache_hits: 0,
+            activation_cache_misses: 0,
+        },
+    });
+}
+
+// 获取默认Actor系统配置
+fn default_actor_system_config() ActorSystemConfig {
+    return ActorSystemConfig {
+        activation_timeout_ms: 30000,
+        idle_timeout_ms: 300000,
+        max_concurrent_actors: 10000,
+    };
+}
+
+// 获取默认状态管理器配置
+fn default_state_manager_config() (int, int) {
+    return (100000, 300000); // 最大100000个状态，默认超时5分钟
+}
+
+// 获取默认生命周期配置
+fn default_lifecycle_config() LifecycleConfig {
+    return LifecycleConfig {
+        activation_timeout_ms: 30000,
+        deactivation_timeout_ms: 10000,
+        max_activation_attempts: 3,
+        auto_terminate_on_error: false,
+        grace_period_ms: 5000,
+    };
+}
+
+// 注册虚拟Actor类型
+fn (self: *VirtualActorSystem) register_actor_type<T: Actor>(type_name: string, factory: *ActorFactory<T>) Result<void, Error> {
+    // 检查类型是否已注册
+    if (self.type_registrations.contains_key(type_name)) {
+        return Result.Err(Error.new("Actor类型已注册"));
+    }
+    
+    // 创建注册信息
+    let registration = ActorTypeRegistration<T> {
+        type_name: type_name,
+        factory: factory,
+    };
+    
+    // 注册类型
+    self.type_registrations.insert(type_name, registration as *any);
+    
+    return Result.Ok(void);
+}
+
+// 获取虚拟Actor引用
+fn (self: *VirtualActorSystem) get_actor<T: Actor>(actor_id: ActorId, type_name: string) VirtualActorRef<T> {
+    return VirtualActorRef<T> {
+        actor_id: actor_id,
+        actor_type: type_name,
+        system: self,
+    };
+}
+
+// 激活虚拟Actor
+fn (self: *VirtualActorSystem) activate_actor<T: Actor>(actor_id: ActorId, type_name: string) Result<*T, Error> {
+    // 更新统计信息
+    self.stats.activation_requests = self.stats.activation_requests + 1;
+    
+    // 检查Actor是否已激活
+    let existing_actor = self.active_virtual_actors.get(actor_id);
+    if (existing_actor.is_some()) {
+        self.stats.activation_cache_hits = self.stats.activation_cache_hits + 1;
+        return Result.Ok(existing_actor.unwrap() as *T);
+    }
+    
+    self.stats.activation_cache_misses = self.stats.activation_cache_misses + 1;
+    
+    // 获取类型注册信息
+    let registration = self.type_registrations.get(type_name);
+    if (registration.is_none()) {
+        return Result.Err(Error.new("未注册的Actor类型: " + type_name));
+    }
+    
+    // 创建Actor实例
+    let factory = (registration.unwrap() as ActorTypeRegistration<T>).factory;
+    let create_result = self.lifecycle_manager.create_actor(factory, actor_id);
+    if (create_result.is_err()) {
+        return create_result;
+    }
+    
+    let actor = create_result.unwrap();
+    
+    // 激活Actor
+    let activate_result = self.lifecycle_manager.activate_actor(&actor, actor_id);
+    if (activate_result.is_err()) {
+        return Result.Err(activate_result.unwrap_err());
+    }
+    
+    // 添加到激活列表
+    self.active_virtual_actors.insert(actor_id, actor as *any);
+    self.stats.active_virtual_actors = self.stats.active_virtual_actors + 1;
+    self.stats.created_virtual_actors = self.stats.created_virtual_actors + 1;
+    
+    return Result.Ok(actor as *T);
+}
+
+// 停用虚拟Actor
+fn (self: *VirtualActorSystem) deactivate_actor(actor_id: ActorId) Result<void, Error> {
+    // 从激活列表中移除
+    if (self.active_virtual_actors.remove(actor_id).is_some()) {
+        self.stats.active_virtual_actors = self.stats.active_virtual_actors - 1;
+    }
+    
+    // 停用生命周期管理器中的Actor
+    return self.lifecycle_manager.deactivate_actor(actor_id);
+}
+
+// 终止虚拟Actor
+fn (self: *VirtualActorSystem) terminate_actor(actor_id: ActorId) Result<void, Error> {
+    // 从激活列表中移除
+    if (self.active_virtual_actors.remove(actor_id).is_some()) {
+        self.stats.active_virtual_actors = self.stats.active_virtual_actors - 1;
+        self.stats.terminated_virtual_actors = self.stats.terminated_virtual_actors + 1;
+    }
+    
+    // 终止生命周期管理器中的Actor
+    return self.lifecycle_manager.terminate_actor(actor_id);
+}
+
+// 向虚拟Actor发送消息
+fn (self: *VirtualActorSystem) send_message<T: Actor>(actor_ref: VirtualActorRef<T>, message: *Message) Result<void, Error> {
+    // 更新统计信息
+    self.stats.message_requests = self.stats.message_requests + 1;
+    
+    // 检查Actor是否已激活
+    let existing_actor = self.active_virtual_actors.get(actor_ref.actor_id);
+    if (existing_actor.is_none()) {
+        // Actor未激活，根据激活策略决定是否激活
+        match self.config.activation_strategy {
+            ActivationStrategy.OnDemand => {
+                // 按需激活
+                let activate_result = self.activate_actor(actor_ref.actor_id, actor_ref.actor_type);
+                if (activate_result.is_err()) {
+                    return Result.Err(activate_result.unwrap_err());
+                }
+            },
+            ActivationStrategy.Preload => {
+                // 预加载策略下，Actor应该已经激活
+                return Result.Err(Error.new("Actor未激活"));
+            },
+            ActivationStrategy.LazyActivation => {
+                // 惰性激活，将消息暂存
+                // TODO: 实现消息暂存机制
+                return Result.Err(Error.new("Actor未激活，惰性激活暂未实现"));
+            }
+        }
+    }
+    
+    // 发送消息到运行时
+    return send_message_runtime(&self.runtime_manager, actor_ref.actor_id, message);
+}
+
+// 获取虚拟Actor统计信息
+fn (self: *VirtualActorSystem) get_stats() VirtualActorStats {
+    return self.stats;
+}
+
+// 清理空闲的虚拟Actor
+fn (self: *VirtualActorSystem) cleanup_idle_actors() int {
+    if (!self.config.auto_cleanup) {
+        return 0;
+    }
+    
+    return self.lifecycle_manager.cleanup_timeout_actors();
+}
+
+// 优雅关闭虚拟Actor系统
+fn (self: *VirtualActorSystem) graceful_shutdown() Result<void, Error> {
+    // 停用所有激活的Actor
+    let mut actor_ids = Vec.new();
+    for (self.active_virtual_actors.keys()) |actor_id| {
+        actor_ids.push(actor_id);
+    }
+    
+    for (actor_ids) |actor_id| {
+        let deactivate_result = self.deactivate_actor(actor_id);
+        if (deactivate_result.is_err()) {
+            // 记录错误但继续处理其他Actor
+        }
+    }
+    
+    // 优雅关闭生命周期管理器
+    return self.lifecycle_manager.graceful_shutdown();
+}
+
+// ============================================================================
+// 虚拟Actor引用实现
+// ============================================================================
+
+// 向虚拟Actor发送消息
+fn (self: *VirtualActorRef<T>) send(message: *Message) Result<void, Error> {
+    return self.system.send_message(*self, message);
+}
+
+// 获取Actor ID
+fn (self: *VirtualActorRef<T>) get_id() ActorId {
+    return self.actor_id;
+}
+
+// 获取Actor类型
+fn (self: *VirtualActorRef<T>) get_type() string {
+    return self.actor_type;
+}
+
+// ============================================================================
+// 工具函数
+// ============================================================================
+
+// 创建虚拟Actor ID
+fn new_virtual_actor_id(type_name: string, key: string) ActorId {
+    let id_str = string.concat(string.concat(type_name, "/"), key);
+    return new_actor_id(id_str);
+}
+
+// 从虚拟Actor引用创建普通Actor引用
+fn (self: *VirtualActorRef<T>) to_actor_ref() ActorRef<T> {
+    return ActorRef<T> {
+        id: self.actor_id,
+        actor_type: self.actor_type,
+    };
+}
+
+// 虚拟Actor统计信息转字符串
+fn virtual_actor_stats_to_string(stats: VirtualActorStats) string {
+    let mut result = "虚拟Actor统计信息:\n";
+    result = string.concat(result, "  总虚拟Actor数: " + string.from_int(stats.total_virtual_actors) + "\n");
+    result = string.concat(result, "  活跃虚拟Actor数: " + string.from_int(stats.active_virtual_actors) + "\n");
+    result = string.concat(result, "  已创建虚拟Actor数: " + string.from_int(stats.created_virtual_actors) + "\n");
+    result = string.concat(result, "  已终止虚拟Actor数: " + string.from_int(stats.terminated_virtual_actors) + "\n");
+    result = string.concat(result, "  激活请求数: " + string.from_int(stats.activation_requests) + "\n");
+    result = string.concat(result, "  消息请求数: " + string.from_int(stats.message_requests) + "\n");
+    result = string.concat(result, "  激活缓存命中数: " + string.from_int(stats.activation_cache_hits) + "\n");
+    result = string.concat(result, "  激活缓存未命中数: " + string.from_int(stats.activation_cache_misses) + "\n");
+    return result;
+}

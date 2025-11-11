@@ -1,0 +1,475 @@
+// std.io - 完整的输入输出模块
+// 版本: v1.0.0
+// 日期: 2025-10-30
+
+module std.io;
+
+import std.error.{Result, Option, IOError};
+import std.string;
+import std.collections.Vec;
+
+// ============================================================================
+// C标准库接口
+// ============================================================================
+
+extern "C" {
+    // 标准I/O
+    fn printf(format: *char, ...) int;
+    fn scanf(format: *char, ...) int;
+    fn puts(s: *char) int;
+    fn putchar(c: int) int;
+    fn getchar() int;
+    fn fgets(str: *char, size: int, stream: *FILE) *char;
+    
+    // 文件I/O
+    fn fopen(filename: *char, mode: *char) *FILE;
+    fn fclose(stream: *FILE) int;
+    fn fread(ptr: *void, size: int, count: int, stream: *FILE) int;
+    fn fwrite(ptr: *void, size: int, count: int, stream: *FILE) int;
+    fn fseek(stream: *FILE, offset: int, whence: int) int;
+    fn ftell(stream: *FILE) int;
+    fn feof(stream: *FILE) int;
+    fn ferror(stream: *FILE) int;
+    fn fflush(stream: *FILE) int;
+    
+    // 标准流
+    static stdin: *FILE;
+    static stdout: *FILE;
+    static stderr: *FILE;
+}
+
+// 文件句柄类型
+struct FILE;
+
+// 文件模式
+enum FileMode {
+    Read,        // "r"
+    Write,       // "w"
+    Append,      // "a"
+    ReadWrite,   // "r+"
+    WriteRead,   // "w+"
+    AppendRead   // "a+"
+}
+
+// Seek模式
+enum SeekMode {
+    Start,    // SEEK_SET = 0
+    Current,  // SEEK_CUR = 1
+    End       // SEEK_END = 2
+}
+
+// ============================================================================
+// 基础输出函数
+// ============================================================================
+
+/// 打印字符串（不换行）
+pub fn print(s: string) void {
+    printf("%s", s.as_ptr());
+    fflush(stdout);
+}
+
+/// 打印字符串（换行）
+pub fn println(s: string) void {
+    printf("%s\n", s.as_ptr());
+    fflush(stdout);
+}
+
+/// 打印到stderr（不换行）
+pub fn eprint(s: string) void {
+    fprintf(stderr, "%s", s.as_ptr());
+    fflush(stderr);
+}
+
+/// 打印到stderr（换行）
+pub fn eprintln(s: string) void {
+    fprintf(stderr, "%s\n", s.as_ptr());
+    fflush(stderr);
+}
+
+/// 打印整数
+pub fn print_int(n: int) void {
+    printf("%d", n);
+    fflush(stdout);
+}
+
+/// 打印浮点数
+pub fn print_float(f: float) void {
+    printf("%f", f);
+    fflush(stdout);
+}
+
+/// 打印布尔值
+pub fn print_bool(b: bool) void {
+    if (b) {
+        print("true");
+    } else {
+        print("false");
+    }
+}
+
+/// 格式化打印
+pub fn printf_az(format: string, args: ...any) void {
+    // 简化版本：直接调用C的printf
+    // TODO: 实现AZ风格的格式化
+    printf(format.as_ptr());
+    fflush(stdout);
+}
+
+/// 格式化为字符串
+pub fn sprintf_az(format: string, args: ...any) string {
+    // TODO: 实现格式化为字符串
+    return format;
+}
+
+// ============================================================================
+// 基础输入函数
+// ============================================================================
+
+/// 读取一行输入
+pub fn read_line() string {
+    let buffer: [1024]char;
+    let result = fgets(&buffer[0], 1024, stdin);
+    
+    if (result == null) {
+        return "";
+    }
+    
+    // 移除换行符
+    let s = string_from_cstr(&buffer[0]);
+    if (s.ends_with("\n")) {
+        return s.substring(0, s.length() - 1);
+    }
+    return s;
+}
+
+/// 读取单个字符
+pub fn read_char() Option<char> {
+    let c = getchar();
+    if (c == -1) {  // EOF
+        return Option.None;
+    }
+    return Option.Some(c as char);
+}
+
+/// 读取整数
+pub fn read_int() Result<int, ParseError> {
+    let line = read_line();
+    return string.to_int(line);
+}
+
+/// 读取浮点数
+pub fn read_float() Result<float, ParseError> {
+    let line = read_line();
+    return string.to_float(line);
+}
+
+/// 读取布尔值
+pub fn read_bool() Result<bool, ParseError> {
+    let line = read_line();
+    return string.to_bool(line);
+}
+
+// ============================================================================
+// 文件操作
+// ============================================================================
+
+/// 文件句柄
+pub struct File {
+    handle: *FILE,
+    path: string,
+    mode: FileMode
+}
+
+/// 打开文件
+pub fn open(path: string, mode: FileMode) Result<File, IOError> {
+    let mode_str = match mode {
+        FileMode.Read => "r",
+        FileMode.Write => "w",
+        FileMode.Append => "a",
+        FileMode.ReadWrite => "r+",
+        FileMode.WriteRead => "w+",
+        FileMode.AppendRead => "a+"
+    };
+    
+    let handle = fopen(path.as_ptr(), mode_str);
+    if (handle == null) {
+        return Result.Err(IOError.FileNotFound);
+    }
+    
+    return Result.Ok(File {
+        handle: handle,
+        path: path,
+        mode: mode
+    });
+}
+
+/// 关闭文件
+pub fn close(file: File) Result<void, IOError> {
+    let result = fclose(file.handle);
+    if (result != 0) {
+        return Result.Err(IOError.CloseError);
+    }
+    return Result.Ok(());
+}
+
+/// 读取文件内容
+pub fn read(file: File, buffer: []byte) Result<int, IOError> {
+    let bytes_read = fread(buffer.as_ptr(), 1, buffer.length, file.handle);
+    
+    if (ferror(file.handle) != 0) {
+        return Result.Err(IOError.ReadError);
+    }
+    
+    return Result.Ok(bytes_read);
+}
+
+/// 写入文件
+pub fn write(file: File, data: []byte) Result<int, IOError> {
+    let bytes_written = fwrite(data.as_ptr(), 1, data.length, file.handle);
+    
+    if (ferror(file.handle) != 0) {
+        return Result.Err(IOError.WriteError);
+    }
+    
+    return Result.Ok(bytes_written);
+}
+
+/// 文件定位
+pub fn seek(file: File, offset: int, whence: SeekMode) Result<int, IOError> {
+    let whence_val = match whence {
+        SeekMode.Start => 0,
+        SeekMode.Current => 1,
+        SeekMode.End => 2
+    };
+    
+    let result = fseek(file.handle, offset, whence_val);
+    if (result != 0) {
+        return Result.Err(IOError.SeekError);
+    }
+    
+    let pos = ftell(file.handle);
+    return Result.Ok(pos);
+}
+
+/// 获取文件位置
+pub fn tell(file: File) Result<int, IOError> {
+    let pos = ftell(file.handle);
+    if (pos == -1) {
+        return Result.Err(IOError.SeekError);
+    }
+    return Result.Ok(pos);
+}
+
+/// 检查是否到达文件末尾
+pub fn eof(file: File) bool {
+    return feof(file.handle) != 0;
+}
+
+/// 刷新文件缓冲区
+pub fn flush(file: File) Result<void, IOError> {
+    let result = fflush(file.handle);
+    if (result != 0) {
+        return Result.Err(IOError.FlushError);
+    }
+    return Result.Ok(());
+}
+
+// ============================================================================
+// 便捷文件函数
+// ============================================================================
+
+/// 读取整个文件内容
+pub fn read_file(path: string) Result<string, IOError> {
+    // 打开文件
+    let file_result = open(path, FileMode.Read);
+    if (file_result.is_err()) {
+        return Result.Err(file_result.unwrap_err());
+    }
+    let file = file_result.unwrap();
+    defer close(file);
+    
+    // 获取文件大小
+    seek(file, 0, SeekMode.End);
+    let size_result = tell(file);
+    if (size_result.is_err()) {
+        return Result.Err(size_result.unwrap_err());
+    }
+    let size = size_result.unwrap();
+    seek(file, 0, SeekMode.Start);
+    
+    // 读取内容
+    let buffer = alloc_bytes(size + 1);
+    let read_result = read(file, buffer);
+    if (read_result.is_err()) {
+        free_bytes(buffer);
+        return Result.Err(read_result.unwrap_err());
+    }
+    
+    buffer[size] = 0;  // null terminator
+    let content = string_from_bytes(buffer, size);
+    free_bytes(buffer);
+    
+    return Result.Ok(content);
+}
+
+/// 写入整个文件内容
+pub fn write_file(path: string, content: string) Result<void, IOError> {
+    // 打开文件
+    let file_result = open(path, FileMode.Write);
+    if (file_result.is_err()) {
+        return Result.Err(file_result.unwrap_err());
+    }
+    let file = file_result.unwrap();
+    defer close(file);
+    
+    // 写入内容
+    let bytes = content.as_bytes();
+    let write_result = write(file, bytes);
+    if (write_result.is_err()) {
+        return Result.Err(write_result.unwrap_err());
+    }
+    
+    return Result.Ok(());
+}
+
+/// 追加到文件
+pub fn append_file(path: string, content: string) Result<void, IOError> {
+    // 打开文件
+    let file_result = open(path, FileMode.Append);
+    if (file_result.is_err()) {
+        return Result.Err(file_result.unwrap_err());
+    }
+    let file = file_result.unwrap();
+    defer close(file);
+    
+    // 写入内容
+    let bytes = content.as_bytes();
+    let write_result = write(file, bytes);
+    if (write_result.is_err()) {
+        return Result.Err(write_result.unwrap_err());
+    }
+    
+    return Result.Ok(());
+}
+
+/// 逐行读取文件
+pub fn read_lines(path: string) Result<Vec<string>, IOError> {
+    let content_result = read_file(path);
+    if (content_result.is_err()) {
+        return Result.Err(content_result.unwrap_err());
+    }
+    
+    let content = content_result.unwrap();
+    let lines = string.split(content, "\n");
+    
+    return Result.Ok(lines);
+}
+
+// ============================================================================
+// 缓冲I/O
+// ============================================================================
+
+/// 缓冲读取器
+pub struct BufReader {
+    file: File,
+    buffer: []byte,
+    pos: int,
+    len: int
+}
+
+/// 创建缓冲读取器
+pub fn buf_reader(file: File) BufReader {
+    return BufReader {
+        file: file,
+        buffer: alloc_bytes(4096),
+        pos: 0,
+        len: 0
+    };
+}
+
+/// 读取一行
+pub fn (self: *BufReader) read_line() Result<string, IOError> {
+    // TODO: 实现缓冲读取
+    return Result.Ok("");
+}
+
+/// 缓冲写入器
+pub struct BufWriter {
+    file: File,
+    buffer: []byte,
+    pos: int
+}
+
+/// 创建缓冲写入器
+pub fn buf_writer(file: File) BufWriter {
+    return BufWriter {
+        file: file,
+        buffer: alloc_bytes(4096),
+        pos: 0
+    };
+}
+
+/// 写入数据
+pub fn (self: *BufWriter) write(data: []byte) Result<int, IOError> {
+    // TODO: 实现缓冲写入
+    return Result.Ok(0);
+}
+
+/// 刷新缓冲区
+pub fn (self: *BufWriter) flush() Result<void, IOError> {
+    // TODO: 实现刷新
+    return Result.Ok(());
+}
+
+// ============================================================================
+// 标准流
+// ============================================================================
+
+/// 标准输入
+pub struct Stdin;
+
+/// 获取标准输入
+pub fn stdin_stream() Stdin {
+    return Stdin {};
+}
+
+/// 从标准输入读取一行
+pub fn (self: Stdin) read_line() string {
+    return read_line();
+}
+
+/// 标准输出
+pub struct Stdout;
+
+/// 获取标准输出
+pub fn stdout_stream() Stdout {
+    return Stdout {};
+}
+
+/// 写入标准输出
+pub fn (self: Stdout) write(s: string) void {
+    print(s);
+}
+
+/// 标准错误
+pub struct Stderr;
+
+/// 获取标准错误
+pub fn stderr_stream() Stderr {
+    return Stderr {};
+}
+
+/// 写入标准错误
+pub fn (self: Stderr) write(s: string) void {
+    eprint(s);
+}
+
+// ============================================================================
+// 辅助函数（需要在运行时实现）
+// ============================================================================
+
+extern fn string_from_cstr(cstr: *char) string;
+extern fn string_from_bytes(bytes: []byte, len: int) string;
+extern fn alloc_bytes(size: int) []byte;
+extern fn free_bytes(bytes: []byte) void;
+extern fn fprintf(stream: *FILE, format: *char, ...) int;

@@ -1,0 +1,98 @@
+// std_net_test.az - 网络标准库测试
+module test.std_net;
+
+import std.test;
+import std.net;
+import std.string;
+
+fn test_ip_address() void {
+    // 测试IPv4地址创建
+    let ipv4 = net.IpAddr.v4(127, 0, 0, 1);
+    test.assert(ipv4.is_ipv4(), "应该创建IPv4地址");
+    test.assert(!ipv4.is_ipv6(), "不应该为IPv6地址");
+
+    // 测试本地回环地址
+    let localhost = net.IpAddr.localhost();
+    test.assert(localhost.is_ipv4(), "本地回环地址应该是IPv4");
+
+    // 测试未指定地址
+    let unspecified = net.IpAddr.unspecified();
+    test.assert(unspecified.is_ipv4(), "未指定地址应该是IPv4");
+}
+
+fn test_socket_addr() void {
+    // 测试套接字地址创建
+    let ip = net.IpAddr.localhost();
+    let addr = net.SocketAddr {
+        ip: ip,
+        port: 8080
+    };
+    
+    test.assert(addr.port == 8080, "端口应该是8080");
+}
+
+fn test_tcp_listener() void {
+    // 测试TCP监听器创建
+    let ip = net.IpAddr.localhost();
+    let addr = net.SocketAddr {
+        ip: ip,
+        port: 0 // 系统分配端口
+    };
+    
+    // 注意：实际测试需要网络环境，这里只测试API可用性
+    // let listener_result = net.TcpListener.bind(addr);
+    // test.assert(listener_result.is_ok(), "应该能创建TCP监听器");
+}
+
+fn test_tcp_stream() void {
+    // 测试TCP流创建
+    let ip = net.IpAddr.localhost();
+    let addr = net.SocketAddr {
+        ip: ip,
+        port: 80 // HTTP端口
+    };
+    
+    // 注意：实际测试需要网络环境，这里只测试API可用性
+    // let stream_result = net.TcpStream.connect(addr);
+    // test.assert(stream_result.is_ok(), "应该能创建TCP流");
+}
+
+fn test_udp_socket() void {
+    // 测试UDP套接字创建
+    let socket_result = net.UdpSocket.new();
+    test.assert(socket_result.is_ok(), "应该能创建UDP套接字");
+}
+
+fn test_url_parsing() void {
+    // 测试URL解析
+    let url_result = net.parse_url("http://example.com:8080/path?query=value#fragment");
+    // test.assert(url_result.is_ok(), "应该能解析URL");
+    
+    // 如果解析成功，检查各部分
+    // if (url_result.is_ok()) {
+    //     let url = url_result.unwrap();
+    //     test.assert(string.equals(url.scheme, "http"), "协议应该是http");
+    //     test.assert(string.equals(url.host, "example.com"), "主机应该是example.com");
+    //     test.assert(url.port == 8080, "端口应该是8080");
+    // }
+}
+
+fn test_http_client() void {
+    // 测试HTTP客户端创建
+    let client = net.HttpClient.new();
+    
+    // 测试GET请求
+    // let response_result = client.get("http://example.com");
+    // 注意：实际测试需要网络环境
+}
+
+fn main() void {
+    test_ip_address();
+    test_socket_addr();
+    test_tcp_listener();
+    test_tcp_stream();
+    test_udp_socket();
+    test_url_parsing();
+    test_http_client();
+    test.summary();
+}

@@ -1,0 +1,129 @@
+// AZ语言 - 数组和for循环示例
+// 展示无头文件的模块化设计
+
+module examples.array_for;
+
+import std.io;
+
+// ============================================================================
+// 数组操作函数
+// ============================================================================
+
+// 计算数组总和
+pub fn sum_array(arr: []int, len: int) int {
+    var sum = 0;
+    for (var i = 0; i < len; i = i + 1) {
+        sum = sum + arr[i];
+    }
+    return sum;
+}
+
+// 查找最大值
+pub fn find_max(arr: []int, len: int) int {
+    if (len == 0) {
+        return 0;
+    }
+    
+    var max = arr[0];
+    for (var i = 1; i < len; i = i + 1) {
+        if (arr[i] > max) {
+            max = arr[i];
+        }
+    }
+    return max;
+}
+
+// 查找最小值
+pub fn find_min(arr: []int, len: int) int {
+    if (len == 0) {
+        return 0;
+    }
+    
+    var min = arr[0];
+    for (var i = 1; i < len; i = i + 1) {
+        if (arr[i] < min) {
+            min = arr[i];
+        }
+    }
+    return min;
+}
+
+// 计算平均值
+pub fn average(arr: []int, len: int) float {
+    if (len == 0) {
+        return 0.0;
+    }
+    
+    let total = sum_array(arr, len);
+    return total / len;
+}
+
+// 反转数组
+pub fn reverse(arr: []int, len: int) void {
+    for (var i = 0; i < len / 2; i = i + 1) {
+        let temp = arr[i];
+        arr[i] = arr[len - 1 - i];
+        arr[len - 1 - i] = temp;
+    }
+}
+
+// 打印数组
+pub fn print_array(arr: []int, len: int) void {
+    print("[");
+    for (var i = 0; i < len; i = i + 1) {
+        print(arr[i]);
+        if (i < len - 1) {
+            print(", ");
+        }
+    }
+    println("]");
+}
+
+// ============================================================================
+// 主函数
+// ============================================================================
+
+pub fn main() int {
+    println("=== AZ语言 - 数组和for循环示例 ===");
+    println("");
+    
+    // 创建数组
+    let numbers = [5, 2, 8, 1, 9, 3, 7, 4, 6];
+    let len = 9;
+    
+    println("原始数组:");
+    print_array(numbers, len);
+    println("");
+    
+    // 计算统计信息
+    let total = sum_array(numbers, len);
+    let maximum = find_max(numbers, len);
+    let minimum = find_min(numbers, len);
+    let avg = average(numbers, len);
+    
+    println("统计信息:");
+    println("  总和: " + total);
+    println("  最大值: " + maximum);
+    println("  最小值: " + minimum);
+    println("  平均值: " + avg);
+    println("");
+    
+    // 反转数组
+    println("反转数组:");
+    reverse(numbers, len);
+    print_array(numbers, len);
+    println("");
+    
+    // 使用for循环打印乘法表
+    println("九九乘法表:");
+    for (var i = 1; i <= 9; i = i + 1) {
+        for (var j = 1; j <= i; j = j + 1) {
+            print(j + "x" + i + "=" + (i * j) + " ");
+        }
+        println("");
+    }
+    
+    println("");
+    println("=== 示例完成 ===");
+    return 0;
+}
