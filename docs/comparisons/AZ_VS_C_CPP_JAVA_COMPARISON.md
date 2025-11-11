@@ -266,8 +266,8 @@ list.push(10);
 #### AZ ⭐
 ```
 编译器: az (基于LLVM/MLIR)
-构建: chim (内置)
-包管理: chim (官方)
+构建: Az_mod (内置)
+包管理: Az_mod (官方)
 调试: LLDB集成
 LSP: az_lsp (官方)
 格式化: az fmt (官方)
